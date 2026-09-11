@@ -13,6 +13,7 @@ The central operations desk:
 """
 
 import streamlit as st
+import html
 from datetime import datetime, timezone
 from services.auth import admin_create_mentor
 from services.local_db import get_local_db
@@ -20,6 +21,7 @@ from services.profiles import get_profile
 from services.relationships import get_aspirant_mentors, assign_guide, assign_sme
 from services.journey import get_journey_timeline, soft_delete_event, log_meaningful_event
 from services.schemes import list_schemes, get_scheme, upsert_scheme, toggle_archive_scheme, delete_scheme, match_schemes_for_aspirant
+from services.schemes_ui import render_fund_explorer_card
 from services.help_requests import list_requests, resolve_request
 
 def render_admin_portal(admin_profile: dict):
@@ -154,8 +156,10 @@ def render_admin_portal(admin_profile: dict):
                         actor_role = event.get("actor_role", "aspirant")
                         actor_name = event.get("actor_name") or "System"
                         ev_data = event.get("event_data", {})
-                        title = ev_data.get("title") or event.get("event_type")
-                        desc = ev_data.get("description", "")
+                        raw_title = ev_data.get("title") or event.get("event_type") or "Milestone"
+                        raw_desc = ev_data.get("description", "")
+                        title = html.escape(str(raw_title))
+                        desc = html.escape(str(raw_desc)).replace("\n", "<br>")
                         date_display = str(event.get("event_date", ""))[:10]
 
                         badge_bg = "#6366f1" if actor_role == "aspirant" else "#10b981" if actor_role == "guide" else "#f59e0b" if actor_role == "sme" else "#ec4899" if actor_role == "admin" else "#64748b"
@@ -406,39 +410,59 @@ def render_admin_portal(admin_profile: dict):
         st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Full Administrative Authority: Search, filter, add new schemes, edit existing guidelines, toggle archive status, or permanently delete schemes from both local and cloud databases.</p>", unsafe_allow_html=True)
 
         # ── 1. ADD NEW SCHEME EXPANDER ──
-        with st.expander("➕ Add New Scheme to Catalogue", expanded=False):
+        with st.expander("➕ Add New Scheme / Fund to Catalogue", expanded=False):
             with st.form("form_add_new_scheme"):
+                st.markdown("##### Basic Information & Capital Structure")
                 c_ns1, c_ns2 = st.columns(2)
                 with c_ns1:
-                    ns_name = st.text_input("Scheme Name *", placeholder="e.g. IndiaAI Mission Compute & Startup Support")
-                    ns_agency = st.text_input("Agency / Ministry *", placeholder="e.g. MeitY (Ministry of Electronics and IT)")
+                    ns_name = st.text_input("Scheme / Fund Name *", placeholder="e.g. IndiaAI Mission Compute & Startup Support")
+                    ns_agency = st.text_input("Agency / Ministry / Firm *", placeholder="e.g. MeitY (Ministry of Electronics and IT)")
                     ns_amount = st.text_input("Funding Amount *", placeholder="e.g. Up to 40% compute GPU subsidy + Rs 1 Crore grant")
-                    ns_type = st.selectbox("Funding Type", ["Grant", "Equity", "Subsidy", "Loan", "Credit Guarantee", "Compute GPU Subsidy & Cohort Grant", "Reimbursement Grant & Equity"])
+                    ns_type = st.selectbox("Funding / Capital Type", ["Grant", "Equity", "Subsidy", "Loan", "Credit Guarantee", "Compute GPU Subsidy & Cohort Grant", "Reimbursement Grant & Equity", "Convertible Note / SAFE"])
                 with c_ns2:
                     ns_cat = st.selectbox("Category", ["Central Govt", "State Govt", "Private VC / Angel", "Foreign / Global"])
                     ns_stage = st.selectbox("Eligible Stage", ["Ideation / R&D", "Pre-Seed / Seed", "Pre-Series A / Series A", "Growth / Debt Scaling"])
-                    ns_scope = st.selectbox("State Scope", ["All India", "Tamil Nadu", "Regional / Global"])
+                    ns_scope = st.selectbox("State Scope / Geography", ["All India", "Tamil Nadu", "Regional / Global"])
                     ns_url = st.text_input("Official Portal URL", placeholder="https://indiaai.gov.in")
 
-                ns_brief = st.text_input("One-line Brief", placeholder="Compute infrastructure subsidies and equity/grant support for AI startups.")
-                ns_desc = st.text_area("Full Description / Scope", placeholder="Access to 10,000+ GPUs onboarded via empaneled providers plus cohort grants for AI ventures.")
+                c_ns3, c_ns4 = st.columns(2)
+                with c_ns3:
+                    ns_sectors = st.text_input("Eligible Sectors (comma-separated)", placeholder="e.g. AI/ML, DeepTech, Agritech, Healthcare")
+                with c_ns4:
+                    ns_brief = st.text_input("One-line Brief", placeholder="Compute infrastructure subsidies and grant support for AI startups.")
+
+                ns_desc = st.text_area("Full Description / Details", placeholder="Access to 10,000+ GPUs onboarded via empaneled providers plus cohort grants for AI ventures building sovereign IP.")
+
+                st.markdown("##### Intelligence, Red Flags & Application Prompt")
+                ns_agenda = st.text_area("🤫 Insider Intelligence / Hidden Agenda (One point per line)", placeholder=">> MeitY wants SOVEREIGN AI & Indigenous IP - show how your model reduces reliance on foreign foundations.\n>> Emphasize local Indian compute residency.")
+                ns_flags = st.text_area("⚠️ Red Flags / Warnings (One point per line)", placeholder="!! Do not submit wrapper apps with no unique data or IP - auto-rejected.\n!! High technical bar during empaneled panel review.")
+                ns_prompt = st.text_area("🤖 AI Pitch & Application Prompt (Template for founders)", placeholder="ROLE: Senior Startup Funding & VC Consultant\nTARGET FUND: [Fund Name]...", height=120)
 
                 if st.form_submit_button("ADD SCHEME TO CATALOGUE", type="primary"):
                     if ns_name and ns_agency:
                         import uuid
+                        new_sectors = [x.strip() for x in ns_sectors.split(",") if x.strip()] if ns_sectors else ["General", "DeepTech"]
+                        new_agenda = [x.strip() for x in ns_agenda.split("\n") if x.strip()] if ns_agenda else [">> High impact venture creation."]
+                        new_flags = [x.strip() for x in ns_flags.split("\n") if x.strip()] if ns_flags else ["!! Review official guidelines before applying."]
                         new_s_obj = {
                             "id": f"SCH-ADMIN-{uuid.uuid4().hex[:8].upper()}",
                             "name": ns_name,
                             "agency": ns_agency,
                             "category_type": ns_cat,
                             "funding_type": ns_type,
+                            "scheme_type": ns_type,
                             "stage": ns_stage,
                             "amount": ns_amount,
                             "brief": ns_brief or ns_name,
                             "description": ns_desc or ns_brief or ns_name,
-                            "sectors": ["General", "DeepTech", "AI"],
+                            "sectors": new_sectors,
+                            "hidden_agenda": new_agenda,
+                            "red_flags": new_flags,
+                            "application_prompt": ns_prompt or f"ROLE: Senior Startup Funding & VC Consultant\nTARGET FUND: {ns_name} ({ns_agency})\nFUND TYPE: {ns_type}",
                             "state_scope": ns_scope,
+                            "geography": "National" if ns_scope == "All India" else "State",
                             "application_url": ns_url,
+                            "last_verified": "September 2026",
                             "is_active": True,
                             "status": "active",
                             "source_dataset": "Manual Admin Addition"
@@ -512,110 +536,6 @@ def render_admin_portal(admin_profile: dict):
         if not page_schemes:
             st.info("No schemes match your search criteria. Try clearing search keywords or resetting filters.")
         else:
-            # ── 4. RICH SCHEME CARDS WITH FULL EDIT & DELETE ──
+            # ── 4. RICH PLAYBOOK FUND EXPLORER CARDS WITH FULL EDIT & DELETE ──
             for s in page_schemes:
-                is_active = s.get("is_active", True)
-                status_tag = "ACTIVE" if is_active else "ARCHIVED"
-                status_bg = "#ECFDF5" if is_active else "#F1F5F9"
-                status_fg = "#059669" if is_active else "#64748B"
-                status_border = "#A7F3D0" if is_active else "#CBD5E1"
-
-                cat_tag = s.get("category_type", "Govt")
-                cat_bg = "#EFF6FF" if "Central" in cat_tag else "#F5F3FF" if "State" in cat_tag else "#FDF2F8"
-                cat_fg = "#2563EB" if "Central" in cat_tag else "#7C3AED" if "State" in cat_tag else "#DB2777"
-
-                funding_type = s.get("funding_type") or "Grant / Support"
-                stage_tag = s.get("stage") or "All Stages"
-                amount_str = s.get("amount") or "Guidelines specified"
-                scope_str = s.get("state_scope") or "All India"
-
-                # Container Card
-                st.markdown(f"""
-                <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px; padding:1.25rem 1.4rem; margin-bottom:1rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
-                        <div style="flex:1; min-width:280px;">
-                            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
-                                <span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:6px; background:{cat_bg}; color:{cat_fg};">{cat_tag}</span>
-                                <span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:6px; background:#F8FAFC; color:#475569; border:1px solid #E2E8F0;">{funding_type}</span>
-                                <span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:6px; background:#F8FAFC; color:#475569; border:1px solid #E2E8F0;">{stage_tag}</span>
-                                <span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:6px; background:{status_bg}; color:{status_fg}; border:1px solid {status_border};">{status_tag}</span>
-                            </div>
-                            <div style="font-size:1.15rem; font-weight:800; color:#0F172A; line-height:1.3;">{s['name']}</div>
-                            <div style="font-size:0.85rem; color:#64748B; font-weight:600; margin-top:3px;">
-                                Agency / Institution: <span style="color:#334155;">{s.get('agency') or 'Central / State Ministry'}</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div style="color:#059669; font-weight:700; font-size:0.95rem; margin:0.5rem 0 0.4rem;">
-                        💵 Funding Amount: {amount_str}
-                    </div>
-                    <div style="color:#334155; font-size:0.88rem; line-height:1.45; margin-bottom:0.6rem;">
-                        {s.get('brief') or s.get('description') or 'Comprehensive capital support and mentorship.'}
-                    </div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; color:#64748B; padding-top:0.4rem; border-top:1px solid #F1F5F9;">
-                        <div>📍 Geography / Scope: <strong>{scope_str}</strong></div>
-                        <div>{f'<a href="{s["application_url"]}" target="_blank" style="color:#2563EB; font-weight:600; text-decoration:none;">Official Portal Link ↗</a>' if s.get("application_url") else ''}</div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Action Controls Row: Edit, Archive, Delete
-                c_act1, c_act2, c_act3 = st.columns([2, 1, 1])
-
-                with c_act1:
-                    with st.expander(f"✏️ Edit '{s['name']}' Details"):
-                        with st.form(f"form_edit_sc_{s['id']}"):
-                            c_es1, c_es2 = st.columns(2)
-                            with c_es1:
-                                ed_name = st.text_input("Scheme Name", value=s["name"])
-                                ed_agency = st.text_input("Agency / Ministry", value=s.get("agency", ""))
-                                ed_amount = st.text_input("Funding Amount", value=s.get("amount", ""))
-                                ed_type = st.text_input("Funding Type", value=s.get("funding_type", "Grant"))
-                            with c_es2:
-                                ed_url = st.text_input("Application URL", value=s.get("application_url", ""))
-                                ed_cat = st.selectbox("Category", ["Central Govt", "State Govt", "Private VC / Angel", "Foreign / Global"], index=0 if "Central" in s.get("category_type","") else 1 if "State" in s.get("category_type","") else 2 if "Private" in s.get("category_type","") else 3)
-                                ed_stage = st.selectbox("Stage", ["Ideation / R&D", "Pre-Seed / Seed", "Pre-Series A / Series A", "Growth / Debt Scaling"], index=0 if s.get("stage") == "Ideation / R&D" else 1 if s.get("stage") == "Pre-Seed / Seed" else 2 if s.get("stage") == "Pre-Series A / Series A" else 3)
-                                ed_scope = st.selectbox("Scope", ["All India", "Tamil Nadu", "Regional / Global"], index=0 if s.get("state_scope") == "All India" else 1)
-
-                            ed_brief = st.text_input("One-line Brief", value=s.get("brief", ""))
-                            ed_desc = st.text_area("Full Description", value=s.get("description", ""))
-
-                            if st.form_submit_button("SAVE UPDATES", type="primary"):
-                                s["name"] = ed_name
-                                s["agency"] = ed_agency
-                                s["amount"] = ed_amount
-                                s["funding_type"] = ed_type
-                                s["category_type"] = ed_cat
-                                s["application_url"] = ed_url
-                                s["stage"] = ed_stage
-                                s["state_scope"] = ed_scope
-                                s["brief"] = ed_brief
-                                s["description"] = ed_desc
-                                upsert_scheme(s, admin_id)
-                                st.success(f"Updated '{ed_name}'!")
-                                st.rerun()
-
-                with c_act2:
-                    action_name = "📦 Archive Scheme" if is_active else "🚀 Activate Scheme"
-                    if st.button(action_name, key=f"btn_arch_{s['id']}", use_container_width=True):
-                        toggle_archive_scheme(s["id"], admin_id)
-                        st.success(f"Changed status to {'Archived' if is_active else 'Active'}!")
-                        st.rerun()
-
-                with c_act3:
-                    if st.button("🗑️ Delete Scheme", key=f"btn_del_{s['id']}", help="Permanently delete from database", use_container_width=True):
-                        st.session_state[f"confirm_delete_{s['id']}"] = True
-
-                    if st.session_state.get(f"confirm_delete_{s['id']}"):
-                        st.warning(f"Permanently delete '{s['name']}'?")
-                        c_cd1, c_cd2 = st.columns(2)
-                        with c_cd1:
-                            if st.button("CONFIRM DELETE", key=f"btn_cd_yes_{s['id']}", type="primary"):
-                                delete_scheme(s["id"], admin_id)
-                                st.session_state.pop(f"confirm_delete_{s['id']}", None)
-                                st.success(f"Permanently deleted '{s['name']}' from catalogue!")
-                                st.rerun()
-                        with c_cd2:
-                            if st.button("CANCEL", key=f"btn_cd_no_{s['id']}"):
-                                st.session_state.pop(f"confirm_delete_{s['id']}", None)
-                                st.rerun()
+                render_fund_explorer_card(s, is_admin=True, admin_id=admin_id, key_prefix=f"adm_sc_{s['id']}")

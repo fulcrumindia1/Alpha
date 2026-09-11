@@ -9,6 +9,7 @@ SME Experience:
 """
 
 import streamlit as st
+import html
 from datetime import date
 from services.relationships import get_assigned_aspirants_for_sme
 from services.journey import get_journey_timeline, add_sme_contribution, soft_delete_event
@@ -133,8 +134,10 @@ def render_sme_portal(user_profile: dict):
                 actor_role = event.get("actor_role", "aspirant")
                 actor_name = event.get("actor_name") or "Specialist"
                 ev_data = event.get("event_data", {})
-                title = ev_data.get("title") or event.get("event_type")
-                desc = ev_data.get("description", "")
+                raw_title = ev_data.get("title") or event.get("event_type") or "Advisory Event"
+                raw_desc = ev_data.get("description", "")
+                title = html.escape(str(raw_title))
+                desc = html.escape(str(raw_desc)).replace("\n", "<br>")
                 date_display = str(event.get("event_date", ""))[:10]
 
                 badge_bg = "#6366f1" if actor_role == "aspirant" else "#10b981" if actor_role == "guide" else "#f59e0b" if actor_role == "sme" else "#ec4899" if actor_role == "admin" else "#64748b"

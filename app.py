@@ -26,7 +26,7 @@ st.set_page_config(
     page_title="FULCRUM-INDIA | Enterprise Guidance System",
     page_icon="🇮🇳",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 from services.auth import logout_user, get_supabase_client
@@ -51,46 +51,69 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
         display: none !important;
     }
 
-    /* Clean Streamlit chrome elements */
+    /* Clean Streamlit chrome elements without hiding sidebar toggle button */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+    }
+    header [data-testid="stToolbar"] {
+        visibility: hidden !important;
+    }
+    header [data-testid="stDecoration"] {
+        display: none !important;
+    }
 
     /* Set clean institutional typography - NEVER target span or [class*="css"] with !important */
     html, body, .stApp, h1, h2, h3, h4, h5, h6, p, label, input, textarea, select {
         font-family: 'Avenir Next', 'Avenir', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }
 
-    /* STRICTLY PROTECT Streamlit Material Symbols / Icon Ligatures */
-    [data-testid*="Icon"],
-    [data-testid*="icon"],
-    [data-testid="stExpanderToggleIcon"],
-    [data-testid="stExpanderToggleIcon"] span,
+    /* STRICTLY PROTECT Streamlit expander toggle icon from printing 'keyboard_arrow_right' */
+    [data-testid="stExpanderToggleIcon"] {
+        font-size: 0px !important;
+        line-height: 0 !important;
+        color: transparent !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 18px !important;
+        height: 18px !important;
+    }
+    [data-testid="stExpanderToggleIcon"] * {
+        display: none !important;
+    }
+    [data-testid="stExpanderToggleIcon"]::after {
+        content: "▶" !important;
+        font-size: 11px !important;
+        color: #64748B !important;
+        display: inline-block !important;
+        transition: transform 0.2s ease !important;
+    }
+    details[open] [data-testid="stExpanderToggleIcon"]::after {
+        transform: rotate(90deg) !important;
+        color: #2563EB !important;
+    }
+
+    /* Additional Icon protection for Material Symbols */
     .material-symbols-rounded,
     .material-symbols-outlined,
-    .material-icons,
-    [class*="material-symbols"],
-    [class*="material-icons"] {
+    .material-icons {
         font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Icons", sans-serif !important;
         font-feature-settings: "liga" 1 !important;
-        font-style: normal !important;
-        font-weight: normal !important;
-        letter-spacing: normal !important;
-        text-transform: none !important;
         display: inline-block !important;
-        white-space: nowrap !important;
-        word-wrap: normal !important;
-        direction: ltr !important;
-        -webkit-font-smoothing: antialiased !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
     if not is_logged_in:
-        # For login state: completely collapse & hide sidebar
+        # For login state: completely collapse & hide sidebar and its toggle button
         st.markdown("""
         <style>
         section[data-testid="stSidebar"] {
+            display: none !important;
+        }
+        [data-testid="stSidebarCollapsedControl"] {
             display: none !important;
         }
         .main .block-container {
@@ -122,15 +145,29 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
             font-family: 'Avenir Next', 'Avenir', sans-serif !important;
         }
 
-        .main p, .main label, .main .stMarkdown {
-            color: #334155;
+        .main p, .main .stMarkdown, .main .stMarkdown p {
+            color: #1E293B !important;
+        }
+
+        .main label, .main label p {
+            color: #0F172A !important;
+            font-weight: 600 !important;
+        }
+
+        /* High contrast inputs */
+        .stTextInput input, .stTextArea textarea {
+            background-color: #FFFFFF !important;
+            color: #0F172A !important;
+            border: 1px solid #CBD5E1 !important;
+            border-radius: 8px !important;
         }
 
         /* Dedicated Dark Sidebar */
         section[data-testid="stSidebar"] {
             background-color: #0d1322 !important;
-            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
             display: block !important;
+            visibility: visible !important;
         }
 
         section[data-testid="stSidebar"] * {
@@ -139,6 +176,43 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
 
         section[data-testid="stSidebar"] .stMarkdown p {
             color: #cbd5e1;
+        }
+
+        /* Prominent Sidebar Toggle Button when sidebar is collapsed */
+        [data-testid="stSidebarCollapsedControl"] {
+            display: flex !important;
+            visibility: visible !important;
+            position: fixed !important;
+            top: 0.85rem !important;
+            left: 0.85rem !important;
+            z-index: 99999 !important;
+            background-color: #FFFFFF !important;
+            border: 1px solid #CBD5E1 !important;
+            border-radius: 8px !important;
+            padding: 6px 10px !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+            cursor: pointer !important;
+            transition: all 0.2s ease !important;
+        }
+        [data-testid="stSidebarCollapsedControl"]:hover {
+            background-color: #F1F5F9 !important;
+            border-color: #94A3B8 !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+        }
+        [data-testid="stSidebarCollapsedControl"] svg,
+        [data-testid="stSidebarCollapsedControl"] * {
+            fill: #0F172A !important;
+            color: #0F172A !important;
+        }
+
+        /* Sidebar Close Button inside sidebar */
+        [data-testid="stSidebarCollapseButton"] {
+            color: #E2E8F0 !important;
+            background: rgba(255, 255, 255, 0.08) !important;
+            border-radius: 6px !important;
+        }
+        [data-testid="stSidebarCollapseButton"] svg {
+            fill: #E2E8F0 !important;
         }
 
         /* Role-specific tab navigation - Institutional Clean Light Tabs */

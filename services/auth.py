@@ -27,11 +27,14 @@ def _get_secrets() -> Tuple[str, str, str]:
     anon_key = ""
     service_key = ""
 
-    # Check Streamlit secrets first
-    if hasattr(st, "secrets"):
-        url = st.secrets.get("SUPABASE_URL", "")
-        anon_key = st.secrets.get("SUPABASE_ANON_KEY", "")
-        service_key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    # Check Streamlit secrets first safely
+    try:
+        if hasattr(st, "secrets"):
+            url = st.secrets.get("SUPABASE_URL", "")
+            anon_key = st.secrets.get("SUPABASE_ANON_KEY", "")
+            service_key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    except Exception:
+        pass
 
     # Fallback to env vars
     if not url: url = os.environ.get("SUPABASE_URL", "")
@@ -54,23 +57,29 @@ def get_supabase_client() -> Optional[Client]:
     if not url or not anon_key or not create_client:
         return None
 
-    if "supabase_client" not in st.session_state or st.session_state.supabase_client is None:
-        st.session_state.supabase_client = create_client(url, anon_key)
+    try:
+        if "supabase_client" not in st.session_state or st.session_state.supabase_client is None:
+            st.session_state.supabase_client = create_client(url, anon_key)
 
-    client = st.session_state.supabase_client
+        client = st.session_state.supabase_client
 
-    # Sync tokens if present
-    token = st.session_state.get("sb_access_token")
-    refresh_token = st.session_state.get("sb_refresh_token")
-    if client and token and refresh_token:
+        # Sync tokens if present
+        token = st.session_state.get("sb_access_token")
+        refresh_token = st.session_state.get("sb_refresh_token")
+        if client and token and refresh_token:
+            try:
+                curr = client.auth.get_session()
+                if not curr or curr.access_token != token:
+                    client.auth.set_session(token, refresh_token)
+            except Exception:
+                pass
+
+        return client
+    except Exception:
         try:
-            curr = client.auth.get_session()
-            if not curr or curr.access_token != token:
-                client.auth.set_session(token, refresh_token)
+            return create_client(url, anon_key)
         except Exception:
-            pass
-
-    return client
+            return None
 
 def get_supabase_admin_client() -> Optional[Client]:
     """Returns trusted server-side Supabase client with service_role privileges."""

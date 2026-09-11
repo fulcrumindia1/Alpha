@@ -38,19 +38,38 @@ def render_login_page():
         color: #1E293B;
     }
 
-    /* Protect Streamlit Material Symbols / Icon Ligatures */
-    [data-testid*="Icon"],
-    [data-testid*="icon"],
-    [data-testid="stExpanderToggleIcon"],
-    [data-testid="stExpanderToggleIcon"] span,
+    /* STRICTLY PROTECT Streamlit expander toggle icon from printing 'keyboard_arrow_right' */
+    [data-testid="stExpanderToggleIcon"] {
+        font-size: 0px !important;
+        line-height: 0 !important;
+        color: transparent !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 18px !important;
+        height: 18px !important;
+    }
+    [data-testid="stExpanderToggleIcon"] * {
+        display: none !important;
+    }
+    [data-testid="stExpanderToggleIcon"]::after {
+        content: "▶" !important;
+        font-size: 11px !important;
+        color: #64748B !important;
+        display: inline-block !important;
+        transition: transform 0.2s ease !important;
+    }
+    details[open] [data-testid="stExpanderToggleIcon"]::after {
+        transform: rotate(90deg) !important;
+        color: #2563EB !important;
+    }
+
+    /* Additional Icon protection for Material Symbols */
     .material-symbols-rounded,
     .material-symbols-outlined,
-    .material-icons,
-    [class*="material-symbols"],
-    [class*="material-icons"] {
+    .material-icons {
         font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Icons", sans-serif !important;
         font-feature-settings: "liga" 1 !important;
-        font-style: normal !important;
         display: inline-block !important;
     }
 

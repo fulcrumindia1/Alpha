@@ -11,11 +11,13 @@ Aspirant Experience:
 """
 
 import streamlit as st
+import html
 from datetime import datetime, date
 from services.profiles import get_profile, update_aspirant_profile
 from services.relationships import get_aspirant_mentors
 from services.journey import get_journey_timeline, add_manual_aspirant_entry, soft_delete_event
 from services.schemes import match_schemes_for_aspirant, list_schemes
+from services.schemes_ui import render_fund_explorer_card
 from services.help_requests import create_request, list_requests
 
 def render_aspirant_portal(user_profile: dict):
@@ -129,7 +131,7 @@ def render_aspirant_portal(user_profile: dict):
     # ─────────────────────────────────────────────────────────────
     with tabs[1]:
         st.markdown("### 📋 Entrepreneur Profile")
-        st.markdown("<p style='color:#94a3b8; font-size:0.9rem;'>Keep this profile updated. Changes automatically recalculate your recommended funding schemes and record journey updates.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#475569; font-size:0.9rem;'>Keep this profile updated. Changes automatically recalculate your recommended funding schemes and record journey updates.</p>", unsafe_allow_html=True)
 
         p_data = profile.get("profile_data", {})
         cur_personal = p_data.get("personal", {})
@@ -221,7 +223,7 @@ def render_aspirant_portal(user_profile: dict):
     # ─────────────────────────────────────────────────────────────
     with tabs[2]:
         st.markdown("### 🎬 The Entrepreneur's Journey")
-        st.markdown("<p style='color:#94a3b8; font-size:0.9rem;'>The living story of your venture. Every milestone, mentor session, and operational breakthrough is preserved here.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#475569; font-size:0.9rem;'>The living story of your venture. Every milestone, mentor session, and operational breakthrough is preserved here.</p>", unsafe_allow_html=True)
 
         with st.expander("➕ Add Journey Milestone / Entry", expanded=False):
             with st.form("form_add_journey_entry"):
@@ -260,8 +262,10 @@ def render_aspirant_portal(user_profile: dict):
                 actor_role = event.get("actor_role", "aspirant")
                 actor_name = event.get("actor_name") or ("Aspirant" if actor_role == "aspirant" else "Mentor")
                 ev_data = event.get("event_data", {})
-                title = ev_data.get("title") or event.get("event_type")
-                desc = ev_data.get("description", "")
+                raw_title = ev_data.get("title") or event.get("event_type") or "Milestone"
+                raw_desc = ev_data.get("description", "")
+                title = html.escape(str(raw_title))
+                desc = html.escape(str(raw_desc)).replace("\n", "<br>")
                 date_display = str(event.get("event_date", ""))[:10]
 
                 # Role-specific styling
@@ -341,82 +345,78 @@ def render_aspirant_portal(user_profile: dict):
             if not matches:
                 st.info("No direct matches found. Try filling out more details in 'My Profile' (sector, stage, district).")
             else:
-                st.success(f"Identified **{len(matches)}** Potentially Eligible Schemes based on your sector, stage, and location profile!")
+                st.success(f"Identified **{len(matches)}** Potentially Eligible Schemes based on your venture profile!")
                 for s in matches:
                     score = s["match_score"]
                     status_label = s["recommendation_status"]
                     score_color = "#10b981" if score >= 80 else "#f59e0b"
 
-                    with st.expander(f"{s['name']} — {score}% Match ({status_label})"):
-                        st.markdown(f"""
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
-                            <div>
-                                <span style="font-size:0.8rem; color:#2563EB; font-weight:700; text-transform:uppercase;">{s.get('agency')}</span>
-                                <h4 style="margin:0.2rem 0; color:#0F172A; font-weight:700;">{s['name']}</h4>
-                            </div>
-                            <div style="background:{score_color}; color:#ffffff; font-weight:900; font-size:1.05rem; padding:4px 14px; border-radius:12px;">
-                                {score}%
-                            </div>
+                    # Match Reasons Banner
+                    reasons_html = "".join([f"<li style='margin-bottom:2px;'><strong style='color:#059669;'>✓</strong> {r}</li>" for r in s.get("match_reasons", [])])
+                    st.markdown(f"""
+                    <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:4px solid #10B981; border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.75rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <strong style="color:#166534; font-size:0.92rem;">Algorithmic Recommendation: {status_label}</strong>
+                            <span style="background:{score_color}; color:#ffffff; font-weight:800; font-size:0.85rem; padding:2px 10px; border-radius:10px;">{score}% Match</span>
                         </div>
-                        <div style="font-size:0.9rem; color:#334155; margin-bottom:0.75rem; line-height:1.4;">{s.get('brief') or s.get('description')}</div>
-                        """, unsafe_allow_html=True)
+                        <ul style="font-size:0.82rem; color:#14532D; margin:0.4rem 0 0 1rem; padding:0;">
+                            {reasons_html}
+                        </ul>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-                        st.markdown("##### ✓ Why This Matched:")
-                        for r in s.get("match_reasons", []):
-                            st.markdown(f"- <span style='color:#059669;'>✓</span> **{r}**", unsafe_allow_html=True)
-
-                        c_info1, c_info2 = st.columns(2)
-                        with c_info1:
-                            st.markdown(f"**Funding Amount:** `{s.get('amount', 'N/A')}`")
-                            st.markdown(f"**Stage:** `{s.get('stage', 'N/A')}`")
-                        with c_info2:
-                            st.markdown(f"**Funding Type:** `{s.get('funding_type', 'Grant')}`")
-                            if s.get("application_url"):
-                                st.markdown(f"[Official Portal Link ↗]({s['application_url']})")
+                    render_fund_explorer_card(s, is_admin=False, key_prefix=f"asp_match_{s['id']}")
 
         with sub_m2:
             c_as1, c_as2, c_as3 = st.columns([2.5, 1.2, 1.2])
             with c_as1:
-                asp_sc_search = st.text_input("Search All Schemes & Funds", placeholder="e.g. IndiaAI, DLI, Accel Atoms, TANSEED, NEEDS, PMEGP...", key="asp_all_sc_search")
+                asp_sc_search = st.text_input("🔍 Search All 170 Schemes & Funds", placeholder="e.g. IndiaAI, DLI, Accel Atoms, TANSEED, NEEDS, PMEGP...", key="asp_all_sc_search")
             with c_as2:
                 asp_sc_cat = st.selectbox("Capital Category", ["ALL", "Central Govt", "State Govt", "Private VC / Angel", "Foreign / Global"], key="asp_sc_cat")
             with c_as3:
                 asp_sc_stage = st.selectbox("Target Stage", ["ALL", "Ideation / R&D", "Pre-Seed / Seed", "Pre-Series A / Series A", "Growth / Debt Scaling"], key="asp_sc_stage")
 
             all_schemes = list_schemes(search=asp_sc_search, category=asp_sc_cat, stage=asp_sc_stage, active_only=True)
-            st.markdown(f"**Showing {len(all_schemes)} active schemes matching filters:**")
+            total_asp_schemes = len(all_schemes)
 
-            for s in all_schemes[:40]:
-                cat_tag = s.get("category_type", "Govt")
-                cat_bg = "#EFF6FF" if "Central" in cat_tag else "#F5F3FF" if "State" in cat_tag else "#FDF2F8"
-                cat_fg = "#2563EB" if "Central" in cat_tag else "#7C3AED" if "State" in cat_tag else "#DB2777"
-                funding_type = s.get("funding_type") or "Grant / Support"
-                stage_tag = s.get("stage") or "All Stages"
-                amount_str = s.get("amount") or "Guidelines specified"
+            # Pagination for Aspirant Fund Explorer
+            c_ab1, c_ab2 = st.columns([2.5, 1.5])
+            with c_ab1:
+                st.markdown(f"**Found {total_asp_schemes} funds & schemes matching filter.**")
+            with c_ab2:
+                asp_page_size_option = st.selectbox("Schemes per page", [15, 30, 50, "All (170)"], index=1, key="asp_page_size")
 
-                st.markdown(f"""
-                <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px; padding:1.25rem 1.4rem; margin-bottom:1rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
-                    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
-                        <span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:6px; background:{cat_bg}; color:{cat_fg};">{cat_tag}</span>
-                        <span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:6px; background:#F8FAFC; color:#475569; border:1px solid #E2E8F0;">{funding_type}</span>
-                        <span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:6px; background:#F8FAFC; color:#475569; border:1px solid #E2E8F0;">{stage_tag}</span>
-                    </div>
-                    <div style="font-size:1.15rem; font-weight:800; color:#0F172A; line-height:1.3;">{s['name']}</div>
-                    <div style="font-size:0.85rem; color:#64748B; font-weight:600; margin-top:3px;">
-                        Agency / Institution: <span style="color:#334155;">{s.get('agency') or 'Central / State Ministry'}</span>
-                    </div>
-                    <div style="color:#059669; font-weight:700; font-size:0.95rem; margin:0.5rem 0 0.4rem;">
-                        💵 Funding Amount: {amount_str}
-                    </div>
-                    <div style="color:#334155; font-size:0.88rem; line-height:1.45; margin-bottom:0.6rem;">
-                        {s.get('brief') or s.get('description') or 'Comprehensive capital support and mentorship.'}
-                    </div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; color:#64748B; padding-top:0.4rem; border-top:1px solid #F1F5F9;">
-                        <div>📍 Geography / Scope: <strong>{s.get('state_scope', 'All India')}</strong></div>
-                        <div>{f'<a href="{s["application_url"]}" target="_blank" style="color:#2563EB; font-weight:600; text-decoration:none;">Official Portal Link ↗</a>' if s.get("application_url") else ''}</div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+            if asp_page_size_option == "All (170)":
+                asp_page_size = total_asp_schemes if total_asp_schemes > 0 else 1
+            else:
+                asp_page_size = int(asp_page_size_option)
+
+            import math
+            asp_total_pages = max(1, math.ceil(total_asp_schemes / asp_page_size)) if total_asp_schemes > 0 else 1
+
+            if "asp_scheme_page" not in st.session_state:
+                st.session_state.asp_scheme_page = 1
+            if st.session_state.asp_scheme_page > asp_total_pages:
+                st.session_state.asp_scheme_page = 1
+
+            c_ap1, c_ap2, c_ap3 = st.columns([1, 2, 1])
+            with c_ap1:
+                if st.button("◀ Previous", disabled=(st.session_state.asp_scheme_page <= 1), key="btn_asp_sc_prev", use_container_width=True):
+                    st.session_state.asp_scheme_page -= 1
+                    st.rerun()
+            with c_ap2:
+                st.markdown(f"<div style='text-align:center; padding-top:6px; font-weight:600; color:#475569;'>Page {st.session_state.asp_scheme_page} of {asp_total_pages} ({total_asp_schemes} Total Funds)</div>", unsafe_allow_html=True)
+            with c_ap3:
+                if st.button("Next ▶", disabled=(st.session_state.asp_scheme_page >= asp_total_pages), key="btn_asp_sc_next", use_container_width=True):
+                    st.session_state.asp_scheme_page += 1
+                    st.rerun()
+
+            a_start_idx = (st.session_state.asp_scheme_page - 1) * asp_page_size
+            a_end_idx = a_start_idx + asp_page_size
+            current_page_schemes = all_schemes[a_start_idx:a_end_idx]
+
+            for s in current_page_schemes:
+                render_fund_explorer_card(s, is_admin=False, key_prefix=f"asp_cat_{s['id']}")
 
     # ─────────────────────────────────────────────────────────────
     # TAB 6: HELP / SUPPORT
