@@ -1,0 +1,18 @@
+# Secrets & Credentials
+.streamlit/secrets.toml
+.env
+*.key
+*.pem
+
+# Local database (SQLite)
+*.db
+cluster_a.db
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Streamlit runtime
+.streamlit/*.log

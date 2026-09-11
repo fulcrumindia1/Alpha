@@ -1,0 +1,9 @@
+[theme]
+base = "light"
+font = "sans serif"
+
+[server]
+runOnSave = true
+headless = true
+enableCORS = false
+enableXsrfProtection = false
