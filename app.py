@@ -57,11 +57,11 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
     header[data-testid="stHeader"] {
         background: transparent !important;
     }
-    header [data-testid="stToolbar"] {
-        visibility: hidden !important;
-    }
+    header [data-testid="stToolbarActions"],
+    header [data-testid="stStatusWidget"],
     header [data-testid="stDecoration"] {
         display: none !important;
+        visibility: hidden !important;
     }
 
     /* Set clean institutional typography - NEVER target span or [class*="css"] with !important */
@@ -110,11 +110,11 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
         # For login state: completely collapse & hide sidebar and its toggle button
         st.markdown("""
         <style>
-        section[data-testid="stSidebar"] {
+        section[data-testid="stSidebar"],
+        [data-testid="stSidebarCollapsedControl"],
+        [data-testid="stExpandSidebarButton"] {
             display: none !important;
-        }
-        [data-testid="stSidebarCollapsedControl"] {
-            display: none !important;
+            visibility: hidden !important;
         }
         .main .block-container {
             max-width: 900px !important;
@@ -179,28 +179,34 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
         }
 
         /* Prominent Sidebar Toggle Button when sidebar is collapsed */
-        [data-testid="stSidebarCollapsedControl"] {
+        [data-testid="stSidebarCollapsedControl"],
+        [data-testid="stExpandSidebarButton"] {
             display: flex !important;
             visibility: visible !important;
             position: fixed !important;
-            top: 0.85rem !important;
-            left: 0.85rem !important;
+            top: 0.75rem !important;
+            left: 0.75rem !important;
             z-index: 99999 !important;
             background-color: #FFFFFF !important;
             border: 1px solid #CBD5E1 !important;
             border-radius: 8px !important;
             padding: 6px 10px !important;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12) !important;
             cursor: pointer !important;
             transition: all 0.2s ease !important;
         }
-        [data-testid="stSidebarCollapsedControl"]:hover {
+        [data-testid="stSidebarCollapsedControl"]:hover,
+        [data-testid="stExpandSidebarButton"]:hover {
             background-color: #F1F5F9 !important;
             border-color: #94A3B8 !important;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18) !important;
         }
         [data-testid="stSidebarCollapsedControl"] svg,
-        [data-testid="stSidebarCollapsedControl"] * {
+        [data-testid="stSidebarCollapsedControl"] span,
+        [data-testid="stSidebarCollapsedControl"] *,
+        [data-testid="stExpandSidebarButton"] svg,
+        [data-testid="stExpandSidebarButton"] span,
+        [data-testid="stExpandSidebarButton"] * {
             fill: #0F172A !important;
             color: #0F172A !important;
         }
@@ -211,8 +217,11 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
             background: rgba(255, 255, 255, 0.08) !important;
             border-radius: 6px !important;
         }
-        [data-testid="stSidebarCollapseButton"] svg {
+        [data-testid="stSidebarCollapseButton"] svg,
+        [data-testid="stSidebarCollapseButton"] span,
+        [data-testid="stSidebarCollapseButton"] * {
             fill: #E2E8F0 !important;
+            color: #E2E8F0 !important;
         }
 
         /* Role-specific tab navigation - Institutional Clean Light Tabs */

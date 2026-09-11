@@ -24,12 +24,15 @@ def render_login_page():
         background-image: none !important;
     }
 
-    /* Hide Streamlit technical multipage sidebar navigation */
+    /* Hide Streamlit technical multipage sidebar navigation and toggle controls */
     [data-testid="stSidebarNav"] {
         display: none !important;
     }
-    section[data-testid="stSidebar"] {
+    section[data-testid="stSidebar"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="stExpandSidebarButton"] {
         display: none !important;
+        visibility: hidden !important;
     }
 
     /* Typography - Avenir Next / Avenir with elegant system fallbacks */

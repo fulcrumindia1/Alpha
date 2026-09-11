@@ -33,7 +33,10 @@ def list_schemes(
                 q = q.eq("category_type", category)
             if stage and stage != "ALL":
                 q = q.eq("stage", stage)
-            res = q.order("name", desc=False).execute()
+            try:
+                res = q.order("display_order", desc=False).execute()
+            except Exception:
+                res = q.order("name", desc=False).execute()
             if res.data:
                 filtered = []
                 for s in res.data:

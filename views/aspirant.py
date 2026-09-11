@@ -415,8 +415,13 @@ def render_aspirant_portal(user_profile: dict):
             a_end_idx = a_start_idx + asp_page_size
             current_page_schemes = all_schemes[a_start_idx:a_end_idx]
 
-            for s in current_page_schemes:
-                render_fund_explorer_card(s, is_admin=False, key_prefix=f"asp_cat_{s['id']}")
+            cols_per_row = 3
+            for i in range(0, len(current_page_schemes), cols_per_row):
+                row_schemes = current_page_schemes[i : i + cols_per_row]
+                cols = st.columns(3)
+                for j, s in enumerate(row_schemes):
+                    with cols[j]:
+                        render_fund_explorer_card(s, is_admin=False, key_prefix=f"asp_cat_{s['id']}")
 
     # ─────────────────────────────────────────────────────────────
     # TAB 6: HELP / SUPPORT

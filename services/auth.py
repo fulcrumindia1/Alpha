@@ -97,15 +97,25 @@ def login_user(email: str, password: str) -> Tuple[Optional[Dict], Optional[str]
     Returns (user_profile_dict, error_message).
     """
     email = email.strip().lower()
+    password = password.strip()
     if not email or not password:
         return None, "Please provide both email and password."
+
+    # 1. Fast path: Check local SQLite database first (instant response, offline resilient)
+    local_db = get_local_db()
+    local_profile = local_db.get_profile_by_email(email)
+    if local_profile and local_db.verify_password(email, password):
+        st.session_state.user = local_profile
+        st.session_state.user_id = local_profile["id"]
+        st.session_state.role = local_profile.get("role", "aspirant")
+        return local_profile, None
 
     client = get_supabase_client()
     user_id = None
     access_token = None
     refresh_token = None
 
-    # 1. Attempt Supabase Auth login
+    # 2. Attempt Supabase Auth login if not found locally or password mismatch
     if client:
         try:
             res = client.auth.sign_in_with_password({"email": email, "password": password})
@@ -118,7 +128,7 @@ def login_user(email: str, password: str) -> Tuple[Optional[Dict], Optional[str]
             # Fallback to local DB check if Supabase Auth rejects or is offline
             pass
 
-    # 2. Fetch Profile from Supabase DB or Local DB
+    # 3. Fetch Profile from Supabase DB or Local DB
     profile = None
     if user_id and client:
         try:
@@ -129,13 +139,9 @@ def login_user(email: str, password: str) -> Tuple[Optional[Dict], Optional[str]
             profile = None
 
     # Fallback to local DB if remote table is not yet created or local record exists
-    if not profile:
-        local_db = get_local_db()
-        profile = local_db.get_profile_by_email(email)
-        # Verify local password if auth didn't go through Supabase
-        if profile and not user_id:
-            if not local_db.verify_password(email, password):
-                return None, "Invalid email or password."
+    if not profile and local_profile:
+        if local_db.verify_password(email, password):
+            profile = local_profile
             user_id = profile["id"]
 
     if not profile and not user_id:

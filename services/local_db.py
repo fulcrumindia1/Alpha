@@ -582,7 +582,7 @@ class LocalDatabase:
             query += " AND stage = ?"
             params.append(stage)
 
-        cur.execute(query + " ORDER BY name ASC", params)
+        cur.execute(query + " ORDER BY COALESCE(display_order, rowid, 9999) ASC", params)
         rows = cur.fetchall()
         conn.close()
 

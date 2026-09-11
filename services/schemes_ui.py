@@ -1,42 +1,47 @@
 """
-services/schemes_ui.py — Fund Explorer UI Component matching FOUNDER_AI_DIGITAL_PLAYBOOK_2026.html
-================================================================================================
-Renders funding schemes with 100% fidelity to the Founder AI Digital Playbook 2026 Fund Explorer:
-- Title, Agency, Category & Type tags
-- Funding Amount callout
-- Details / Brief description
-- Sector pills & Geography tag
-- 🤫 Insider Intelligence / Hidden Agenda callout (Amber)
-- ⚠️ Red Flags / Warnings callout (Red)
-- 🤖 AI Pitch & Application Prompt expander with 1-click copy code block
-- Official Portal Link & Last Verified badge
-- Full Admin CRUD controls (Edit all 24 fields, Archive/Activate, Delete with confirmation)
+services/schemes_ui.py — Fund Explorer Card Component matching FOUNDER_AI_DIGITAL_PLAYBOOK_2026.html
+====================================================================================================
+Renders funding schemes with 100% visual fidelity to the Founder AI Digital Playbook 2026 Fund Explorer:
+- Obsidian-violet dark card container with 1.5px radiant purple border (#8B5CF6)
+- High-contrast white scheme name (#FFFFFF, 1.22rem)
+- Agency / Ministry attribution (#94A3B8)
+- Capital type capsule pill with purple glow and category badge
+- Neon emerald funding amount callout (#34D399)
+- Description / Brief (#CBD5E1)
+- Sectors tags row (#1E293B capsules) and Geographic Scope tag
+- 🤫 Insider Intelligence / Hidden Agenda amber box (#F59E0B left border, #FCD34D text)
+- ⚠️ Red Flags / Warnings red box (#EF4444 left border, #FCA5A5 text)
+- 🤖 Collapsible AI Pitch & Application Prompt expander with copyable code block
+- Official Portal Link & Last Verified footer
+- Full Admin CRUD actions: Edit all 24 fields in-place, Archive/Activate toggle, Delete with confirmation
 """
 
 import streamlit as st
 import json
+import html
 from services.schemes import upsert_scheme, toggle_archive_scheme, delete_scheme
 
 def parse_list_field(val, default="None"):
     if not val:
         return default
     if isinstance(val, list):
-        return "<br>".join(f"• {item}" if not item.startswith((">>", "!!", "•")) else item for item in val)
+        items = [str(x) for x in val if x]
+        return "<br>".join(f"• {html.escape(item)}" if not item.startswith((">>", "!!", "•")) else html.escape(item) for item in items)
     if isinstance(val, str):
         val_s = val.strip()
         if val_s.startswith("[") and val_s.endswith("]"):
             try:
                 parsed = json.loads(val_s)
                 if isinstance(parsed, list):
-                    return "<br>".join(f"• {item}" if not str(item).startswith((">>", "!!", "•")) else str(item) for item in parsed)
+                    items = [str(x) for x in parsed if x]
+                    return "<br>".join(f"• {html.escape(item)}" if not item.startswith((">>", "!!", "•")) else html.escape(item) for item in items)
             except Exception:
                 pass
-        # Fallback: split by newlines if any
         lines = [l.strip() for l in val_s.split("\n") if l.strip()]
         if len(lines) > 1:
-            return "<br>".join(f"• {line}" if not line.startswith((">>", "!!", "•")) else line for line in lines)
-        return val_s
-    return str(val)
+            return "<br>".join(f"• {html.escape(line)}" if not line.startswith((">>", "!!", "•")) else html.escape(line) for line in lines)
+        return html.escape(val_s)
+    return html.escape(str(val))
 
 def parse_sectors_list(val):
     if not val:
@@ -71,16 +76,15 @@ def render_fund_explorer_card(s: dict, is_admin: bool = False, admin_id: str = N
     
     is_active = bool(s.get("is_active", True))
     status_tag = "ACTIVE" if is_active else "ARCHIVED"
-    status_bg = "#ECFDF5" if is_active else "#F1F5F9"
-    status_fg = "#059669" if is_active else "#64748B"
-    status_border = "#A7F3D0" if is_active else "#CBD5E1"
-    
-    cat_bg = "#EFF6FF" if "Central" in cat_type else "#F5F3FF" if "State" in cat_type else "#FDF2F8"
-    cat_fg = "#2563EB" if "Central" in cat_type else "#7C3AED" if "State" in cat_type else "#DB2777"
-    cat_border = "#BFDBFE" if "Central" in cat_type else "#DDD6FE" if "State" in cat_type else "#FBCFE8"
+    status_bg = "rgba(16, 185, 129, 0.2)" if is_active else "rgba(148, 163, 184, 0.2)"
+    status_fg = "#34D399" if is_active else "#94A3B8"
+    status_border = "#059669" if is_active else "#64748B"
 
     sectors = parse_sectors_list(s.get("sectors"))
-    sectors_html = "".join([f'<span style="display:inline-block; font-size:0.75rem; font-weight:600; padding:2px 8px; border-radius:6px; background:#F1F5F9; color:#334155; border:1px solid #E2E8F0; margin-right:6px; margin-bottom:4px;">{sec}</span>' for sec in sectors])
+    sectors_html = "".join([
+        f'<span style="display:inline-block; font-size:0.7rem; font-weight:700; text-transform:uppercase; padding:3px 9px; border-radius:9999px; background:#1E293B; color:#E2E8F0; border:1px solid #334155; margin-right:5px; margin-bottom:5px;">{html.escape(str(sec))}</span>'
+        for sec in sectors
+    ])
     
     agenda_text = parse_list_field(s.get("hidden_agenda"), default=">> Emphasize local job creation, import substitution & revenue growth.")
     flag_text = parse_list_field(s.get("red_flags"), default="!! Verify official sanction terms, audit rules & equity rights before signing.")
@@ -107,77 +111,53 @@ TASK:
 CONSTRAINTS: Adhere strictly to official eligibility criteria. Do not exaggerate revenue.
 OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone Schedule."""
 
-    # Outer Container Card
-    st.markdown(f"""
-    <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-top:4px solid #2563EB; border-radius:12px; padding:1.4rem; margin-bottom:1rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
-        <!-- Top Row: Title, Agency, Badges -->
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px; margin-bottom:0.75rem;">
-            <div style="flex:1; min-width:280px;">
-                <h3 style="font-size:1.25rem; color:#0F172A; font-weight:800; margin:0 0 4px 0; line-height:1.3;">{name}</h3>
-                <p style="color:#64748B; font-size:0.88rem; margin:0;">
-                    <strong style="color:#334155;">Agency / Institution:</strong> {agency}
-                </p>
-            </div>
-            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
-                <span style="font-size:0.75rem; font-weight:700; padding:3px 10px; border-radius:8px; background:{cat_bg}; color:{cat_fg}; border:1px solid {cat_border};">{cat_type}</span>
-                <span style="font-size:0.75rem; font-weight:700; padding:3px 10px; border-radius:8px; background:#F8FAFC; color:#475569; border:1px solid #CBD5E1;">{fund_type}</span>
-                <span style="font-size:0.75rem; font-weight:700; padding:3px 10px; border-radius:8px; background:#F8FAFC; color:#475569; border:1px solid #CBD5E1;">{stage_tag}</span>
-                {f'<span style="font-size:0.75rem; font-weight:700; padding:3px 10px; border-radius:8px; background:{status_bg}; color:{status_fg}; border:1px solid {status_border};">{status_tag}</span>' if is_admin else ''}
-            </div>
-        </div>
+    portal_link_html = f'<a href="{app_url}" target="_blank" style="color:#A78BFA; font-weight:700; text-decoration:none; font-size:0.82rem;">Official Portal Link &nearr;</a>' if app_url else '<span style="color:#64748B; font-size:0.82rem;">Direct Nodal Portal Submission</span>'
 
-        <!-- Funding Amount Callout -->
-        <div style="font-size:1rem; color:#059669; font-weight:800; margin-bottom:0.6rem;">
-            💵 Funding Amount: {amount}
-        </div>
+    # Build status badge HTML (admin only)
+    status_badge = f'<span style="display:inline-block;font-size:0.68rem;font-weight:700;padding:3px 8px;border-radius:9999px;background:{status_bg};color:{status_fg};border:1px solid {status_border};">{status_tag}</span>' if is_admin else ''
 
-        <!-- Brief / Details -->
-        <div style="font-size:0.9rem; color:#334155; line-height:1.5; margin-bottom:0.85rem;">
-            {details}
-        </div>
-
-        <!-- Sectors & Scope Badges -->
-        <div style="margin-bottom:0.85rem;">
-            {sectors_html}
-            <span style="display:inline-block; font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:6px; background:#EFF6FF; color:#2563EB; border:1px solid #BFDBFE;">📍 {scope_str}</span>
-        </div>
-
-        <!-- 🤫 INSIDER INTELLIGENCE / HIDDEN AGENDA (Amber Callout) -->
-        <div style="background:#FFFBEB; border-left:4px solid #F59E0B; border:1px solid #FDE68A; border-left-width:4px; padding:0.85rem 1rem; border-radius:0 8px 8px 0; font-size:0.86rem; color:#92400E; margin-bottom:0.75rem; line-height:1.45;">
-            <div style="font-weight:800; color:#B45309; margin-bottom:4px;">🤫 INSIDER INTELLIGENCE / HIDDEN AGENDA:</div>
-            <div>{agenda_text}</div>
-        </div>
-
-        <!-- ⚠️ RED FLAGS / WARNINGS (Red Callout) -->
-        <div style="background:#FEF2F2; border-left:4px solid #EF4444; border:1px solid #FECACA; border-left-width:4px; padding:0.85rem 1rem; border-radius:0 8px 8px 0; font-size:0.86rem; color:#991B1B; margin-bottom:0.85rem; line-height:1.45;">
-            <div style="font-weight:800; color:#DC2626; margin-bottom:4px;">⚠️ RED FLAGS / WARNINGS:</div>
-            <div>{flag_text}</div>
-        </div>
-
-        <!-- Official Portal & Verification Row -->
-        <div style="display:flex; justify-content:space-between; align-items:center; padding-top:0.6rem; border-top:1px solid #F1F5F9; font-size:0.82rem; color:#64748B;">
-            <div>
-                {f'<a href="{app_url}" target="_blank" style="color:#2563EB; font-weight:700; text-decoration:none;">Official Portal Link &nearr;</a>' if app_url else '<span style="color:#94A3B8;">Direct Nodal Portal Submission</span>'}
-            </div>
-            <div>
-                Verified: <strong style="color:#475569;">{last_verified}</strong>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Outer Container Card matching Playbook Fund Explorer
+    st.markdown(f"""<div style="background:#11131F;border:1.5px solid #8B5CF6;border-radius:14px;padding:1.25rem;margin-bottom:0.75rem;box-shadow:0 4px 20px rgba(139,92,246,0.12);">
+<div style="margin-bottom:0.6rem;">
+<div style="font-size:1.15rem;color:#FFFFFF;font-weight:800;line-height:1.3;margin:0 0 5px 0;">{html.escape(name)}</div>
+<div style="color:#94A3B8;font-size:0.84rem;margin:0;line-height:1.35;"><strong style="color:#CBD5E1;">Agency / Institution:</strong> {html.escape(agency)}</div>
+</div>
+<div style="margin-bottom:0.75rem;display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
+<span style="display:inline-block;font-size:0.68rem;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;padding:3px 10px;border-radius:9999px;background:rgba(139,92,246,0.22);color:#C4B5FD;border:1px solid #8B5CF6;">{html.escape(fund_type)}</span>
+<span style="display:inline-block;font-size:0.68rem;font-weight:700;padding:3px 8px;border-radius:9999px;background:rgba(59,130,246,0.15);color:#93C5FD;border:1px solid #3B82F6;">{html.escape(cat_type)}</span>
+{status_badge}
+</div>
+<div style="font-size:0.95rem;color:#34D399;font-weight:700;margin-bottom:0.65rem;line-height:1.35;">Funding: {html.escape(amount)}</div>
+<div style="font-size:0.84rem;color:#CBD5E1;line-height:1.45;margin-bottom:0.85rem;">{html.escape(details[:250])}</div>
+<div style="margin-bottom:0.85rem;">{sectors_html}
+<span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;padding:3px 9px;border-radius:9999px;background:rgba(16,185,129,0.15);color:#34D399;border:1px solid #059669;margin-bottom:5px;">{html.escape(scope_str)}</span>
+</div>
+<div style="background:rgba(245,158,11,0.12);border-left:4px solid #F59E0B;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.82rem;color:#FCD34D;line-height:1.45;margin-bottom:0.65rem;">
+<div style="font-weight:800;color:#FBBF24;margin-bottom:3px;font-size:0.84rem;">INSIDER INTELLIGENCE:</div>
+<div>{agenda_text}</div>
+</div>
+<div style="background:rgba(239,68,68,0.12);border-left:4px solid #EF4444;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.82rem;color:#FCA5A5;line-height:1.45;margin-bottom:0.75rem;">
+<div style="font-weight:800;color:#F87171;margin-bottom:3px;font-size:0.84rem;">RED FLAGS:</div>
+<div>{flag_text}</div>
+</div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding-top:0.6rem;border-top:1px solid rgba(255,255,255,0.08);font-size:0.8rem;color:#94A3B8;margin-top:0.4rem;">
+<div>{portal_link_html}</div>
+<div>Verified: <strong style="color:#E2E8F0;">{html.escape(last_verified)}</strong></div>
+</div>
+</div>""", unsafe_allow_html=True)
 
     # Collapsible AI Pitch & Application Prompt Box
-    with st.expander(f"🤖 View AI Pitch & Application Prompt for '{name}'", expanded=False):
+    with st.expander("🤖 AI Pitch Prompt", expanded=False):
         st.markdown("<p style='font-size:0.82rem; color:#64748B; margin-bottom:6px;'>Copy this prompt into Claude, ChatGPT, or your AI Copilot to generate a 1-page DPR and official application proposal:</p>", unsafe_allow_html=True)
         st.code(app_prompt_text, language="markdown")
 
     # If Admin, Render Complete CRUD Actions
     if is_admin:
-        c_act1, c_act2, c_act3 = st.columns([2.5, 1.2, 1.2])
+        c_act1, c_act2, c_act3 = st.columns([1.4, 0.9, 0.9])
 
         # 1. Full Edit Form Expander
         with c_act1:
-            with st.expander(f"✏️ Edit '{name}' (Full Data Fields)"):
+            with st.expander("✏️ Edit Scheme"):
                 with st.form(f"{key_prefix}_edit_form_{sid}"):
                     st.markdown("##### Basic Information")
                     c_e1, c_e2 = st.columns(2)
@@ -222,10 +202,9 @@ OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone S
 
                     ed_sectors = st.text_input("Eligible Sectors (comma-separated)", value=sec_str)
                     ed_brief = st.text_input("One-line Brief", value=s.get("brief") or details[:200])
-                    ed_desc = st.text_area("Full Description / Details", value=s.get("description") or details, height=90)
+                    ed_desc = st.text_area("Full Description / Details", value=s.get("description") or details, height=80)
 
                     st.markdown("##### Intelligence, Red Flags & AI Prompt")
-                    # Format existing list fields for editing
                     agenda_val = s.get("hidden_agenda")
                     if isinstance(agenda_val, list):
                         agenda_str = "\n".join(agenda_val)
@@ -248,12 +227,11 @@ OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone S
                     else:
                         flags_str = str(flags_val or "")
 
-                    ed_agenda = st.text_area("Insider Intelligence / Hidden Agenda (One point per line)", value=agenda_str, height=90)
-                    ed_flags = st.text_area("Red Flags / Warnings (One point per line)", value=flags_str, height=90)
-                    ed_prompt = st.text_area("AI Pitch & Application Prompt", value=app_prompt_text, height=130)
+                    ed_agenda = st.text_area("Insider Intelligence / Hidden Agenda (One point per line)", value=agenda_str, height=80)
+                    ed_flags = st.text_area("Red Flags / Warnings (One point per line)", value=flags_str, height=80)
+                    ed_prompt = st.text_area("AI Pitch & Application Prompt", value=app_prompt_text, height=120)
 
                     if st.form_submit_button("SAVE SCHEME UPDATES", type="primary"):
-                        # Parse sectors
                         new_sectors = [x.strip() for x in ed_sectors.split(",") if x.strip()]
                         new_agenda = [x.strip() for x in ed_agenda.split("\n") if x.strip()]
                         new_flags = [x.strip() for x in ed_flags.split("\n") if x.strip()]
@@ -264,6 +242,7 @@ OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone S
                             "agency": ed_agency,
                             "amount": ed_amount,
                             "funding_type": ed_type,
+                            "scheme_type": ed_type,
                             "category_type": ed_cat,
                             "stage": ed_stage,
                             "state_scope": ed_scope,

@@ -536,6 +536,11 @@ def render_admin_portal(admin_profile: dict):
         if not page_schemes:
             st.info("No schemes match your search criteria. Try clearing search keywords or resetting filters.")
         else:
-            # ── 4. RICH PLAYBOOK FUND EXPLORER CARDS WITH FULL EDIT & DELETE ──
-            for s in page_schemes:
-                render_fund_explorer_card(s, is_admin=True, admin_id=admin_id, key_prefix=f"adm_sc_{s['id']}")
+            # ── 4. RICH PLAYBOOK FUND EXPLORER CARDS WITH FULL EDIT & DELETE (3-COLUMN GRID) ──
+            cols_per_row = 3
+            for i in range(0, len(page_schemes), cols_per_row):
+                row_schemes = page_schemes[i : i + cols_per_row]
+                cols = st.columns(3)
+                for j, s in enumerate(row_schemes):
+                    with cols[j]:
+                        render_fund_explorer_card(s, is_admin=True, admin_id=admin_id, key_prefix=f"adm_sc_{s['id']}")
