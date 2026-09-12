@@ -56,7 +56,26 @@ def list_schemes(
         except Exception:
             pass
 
-    return get_local_db().list_schemes(search, category, stage, sector, active_only)
+    try:
+        return get_local_db().list_schemes(search, category, stage, sector, active_only)
+    except Exception:
+        try:
+            # Self-healing dynamic migration on existing database file
+            import sqlite3
+            from pathlib import Path
+            db_path = Path(__file__).resolve().parent.parent / "cluster_a.db"
+            if db_path.exists():
+                conn = sqlite3.connect(db_path)
+                cur = conn.cursor()
+                cur.execute("PRAGMA table_info(schemes)")
+                cols = [c[1] for c in cur.fetchall()]
+                if "display_order" not in cols and len(cols) > 0:
+                    cur.execute("ALTER TABLE schemes ADD COLUMN display_order INTEGER DEFAULT 9999")
+                    conn.commit()
+                conn.close()
+            return get_local_db().list_schemes(search, category, stage, sector, active_only)
+        except Exception:
+            return []
 
 def get_scheme(scheme_id: str) -> Optional[Dict]:
     """Retrieves full details of a single scheme."""

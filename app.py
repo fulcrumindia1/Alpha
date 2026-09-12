@@ -21,6 +21,31 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
+# Self-healing database check at entrypoint (guarantees zero missing-column crashes on fresh or legacy container disks)
+import sqlite3
+try:
+    _db_path = os.path.join(current_dir, "cluster_a.db")
+    if os.path.exists(_db_path):
+        _conn = sqlite3.connect(_db_path)
+        _cur = _conn.cursor()
+        _cur.execute("PRAGMA table_info(schemes)")
+        _cols = [c[1] for c in _cur.fetchall()]
+        if "display_order" not in _cols and len(_cols) > 0:
+            _cur.execute("ALTER TABLE schemes ADD COLUMN display_order INTEGER DEFAULT 9999")
+            _conn.commit()
+        _conn.close()
+except Exception:
+    pass
+
+# Force reload services if running in Streamlit hot-reload container
+import importlib
+for _m in ["services.local_db", "services.schemes", "services.auth", "services.schemes_ui", "views.admin", "views.aspirant", "views.guide", "views.sme", "views.login"]:
+    if _m in sys.modules:
+        try:
+            importlib.reload(sys.modules[_m])
+        except Exception:
+            pass
+
 # Page configuration
 st.set_page_config(
     page_title="FULCRUM-INDIA | Enterprise Guidance System",
