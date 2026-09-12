@@ -328,6 +328,22 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
             background: #1d4ed8 !important;
             box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
         }
+
+        /* Modal Dialog Styling (Modern, Clean, Spacious) */
+        div[data-testid="stDialog"] {
+            border-radius: 16px !important;
+            box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25) !important;
+            border: 1px solid #E2E8F0 !important;
+        }
+        div[data-testid="stDialog"] [data-testid="stDialogHeader"] {
+            padding-bottom: 10px !important;
+            border-bottom: 1px solid #E2E8F0 !important;
+        }
+        div[data-testid="stDialog"] [data-testid="stDialogHeader"] h2,
+        div[data-testid="stDialog"] [data-testid="stDialogHeader"] span {
+            color: #0F172A !important;
+            font-weight: 800 !important;
+        }
         </style>
         """, unsafe_allow_html=True)
 
