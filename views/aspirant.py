@@ -336,10 +336,10 @@ def render_aspirant_portal(user_profile: dict):
     # ─────────────────────────────────────────────────────────────
     with tabs[4]:
         st.markdown("### 🏦 Scheme Intelligence & Fund Explorer")
-        st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Explore funding opportunities: Review customized algorithmic matches for your enterprise, or search the complete catalogue of 170 central, state, and private venture capital funds.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Explore funding opportunities: Review customized algorithmic matches for your enterprise, or search the complete catalogue of central, state, and private venture capital funds.</p>", unsafe_allow_html=True)
 
         matches = match_schemes_for_aspirant(user_id)
-        sub_m1, sub_m2 = st.tabs([f"🎯 Matched For Your Venture ({len(matches)})", "🔍 Explore All 170 Schemes & Funds"])
+        sub_m1, sub_m2 = st.tabs([f"🎯 Matched For Your Venture ({len(matches)})", "🔍 Explore All Schemes & Funds"])
 
         with sub_m1:
             if not matches:
@@ -370,7 +370,7 @@ def render_aspirant_portal(user_profile: dict):
         with sub_m2:
             c_as1, c_as2, c_as3 = st.columns([2.5, 1.2, 1.2])
             with c_as1:
-                asp_sc_search = st.text_input("🔍 Search All 170 Schemes & Funds", placeholder="e.g. IndiaAI, DLI, Accel Atoms, TANSEED, NEEDS, PMEGP...", key="asp_all_sc_search")
+                asp_sc_search = st.text_input("🔍 Search Funds & Schemes", placeholder="e.g. IndiaAI, DLI, Accel Atoms, TANSEED, NEEDS, PMEGP...", key="asp_all_sc_search")
             with c_as2:
                 asp_sc_cat = st.selectbox("Capital Category", ["ALL", "Central Govt", "State Govt", "Private VC / Angel", "Foreign / Global"], key="asp_sc_cat")
             with c_as3:
@@ -384,9 +384,9 @@ def render_aspirant_portal(user_profile: dict):
             with c_ab1:
                 st.markdown(f"**Found {total_asp_schemes} funds & schemes matching filter.**")
             with c_ab2:
-                asp_page_size_option = st.selectbox("Schemes per page", [15, 30, 50, "All (170)"], index=1, key="asp_page_size")
+                asp_page_size_option = st.selectbox("Schemes per page", [15, 30, 50, f"Show All ({total_asp_schemes})"], index=1, key="asp_page_size")
 
-            if asp_page_size_option == "All (170)":
+            if str(asp_page_size_option).startswith("Show All"):
                 asp_page_size = total_asp_schemes if total_asp_schemes > 0 else 1
             else:
                 asp_page_size = int(asp_page_size_option)

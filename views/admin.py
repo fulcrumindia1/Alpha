@@ -406,7 +406,7 @@ def render_admin_portal(admin_profile: dict):
     # TAB 6: SCHEME CATALOGUE CRUD
     # ─────────────────────────────────────────────────────────────
     with tabs[5]:
-        st.subheader("Scheme Catalogue Management (170 Records in Intelligence Database)")
+        st.subheader(f"Scheme Catalogue Management ({len(all_schemes)} Records in Intelligence Database)")
         st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Full Administrative Authority: Search, filter, add new schemes, edit existing guidelines, toggle archive status, or permanently delete schemes from both local and cloud databases.</p>", unsafe_allow_html=True)
 
         # ── 1. ADD NEW SCHEME EXPANDER ──
@@ -502,9 +502,9 @@ def render_admin_portal(admin_profile: dict):
         with c_bar1:
             st.markdown(f"**Found {total_count} schemes matching filter.**")
         with c_bar2:
-            page_size_option = st.selectbox("Schemes per page", [15, 30, 50, 100, "All (170)"], index=1, key="adm_page_size")
+            page_size_option = st.selectbox("Schemes per page", [15, 30, 50, 100, f"Show All ({total_count})"], index=1, key="adm_page_size")
 
-        if page_size_option == "All (170)":
+        if str(page_size_option).startswith("Show All"):
             page_size = total_count if total_count > 0 else 1
         else:
             page_size = int(page_size_option)
