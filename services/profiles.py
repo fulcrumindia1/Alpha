@@ -49,7 +49,12 @@ def calculate_completion(p: Dict) -> int:
     return int((points / total) * 100)
 
 def get_profile(user_id: str) -> Optional[Dict]:
-    """Fetches user profile by ID from Supabase or local store."""
+    """Fetches user profile by ID from local store first (instant), then Supabase fallback."""
+    p = get_local_db().get_profile_by_id(user_id)
+    if p:
+        p["completion_pct"] = calculate_completion(p)
+        return p
+
     client = get_supabase_client()
     if client:
         try:
@@ -60,11 +65,7 @@ def get_profile(user_id: str) -> Optional[Dict]:
                 return p
         except Exception:
             pass
-
-    p = get_local_db().get_profile_by_id(user_id)
-    if p:
-        p["completion_pct"] = calculate_completion(p)
-    return p
+    return None
 
 def update_aspirant_profile(
     user_id: str,

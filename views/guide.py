@@ -28,6 +28,7 @@ from services.profiles import get_profile
 from services.journey import get_journey_timeline, add_guide_contribution, soft_delete_event
 from services.schemes import (
     list_schemes,
+    match_schemes_for_aspirant,
     evaluate_scheme_for_aspirant,
     release_scheme_to_aspirant,
     withdraw_scheme_release,
@@ -103,7 +104,7 @@ def render_guide_portal(user_profile: dict):
                 subtabs = st.tabs([
                     "👤 Profile",
                     "🎬 Journey",
-                    "🤝 Assigned Mentors",
+                    "🤝 Guidance Team",
                     "🏦 Scheme Matches"
                 ])
 
@@ -298,127 +299,294 @@ def render_guide_portal(user_profile: dict):
                 # ─────────────────────────────────────────────────────────
                 with subtabs[3]:
                     st.markdown("### 🏦 Scheme Gatekeeper Workspace")
-                    st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>Evaluate schemes from the master catalogue against <strong>{curr_asp['full_name']}</strong>'s profile, examine private insider intelligence & red flags, and release curated opportunities.</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>AI-suggested matches and full catalogue access for <strong>{curr_asp['full_name']}</strong>. Evaluate, review insider intelligence & red flags, and release curated opportunities.</p>", unsafe_allow_html=True)
 
-                    # 1. Master Catalogue Search & Filter
-                    c_s1, c_s2, c_s3 = st.columns([2.5, 1.2, 1.2])
-                    with c_s1:
-                        g_sc_search = st.text_input("🔍 Search Master Catalogue", placeholder="e.g. PMEGP, TANSEED, NEEDS, MUDRA...", key="g_sc_search")
-                    with c_s2:
-                        g_sc_cat = st.selectbox("Category", ["ALL", "Central Govt", "State Govt", "Private VC / Angel", "Foreign / Global"], key="g_sc_cat")
-                    with c_s3:
-                        g_sc_stage = st.selectbox("Stage", ["ALL", "Ideation / R&D", "Pre-Seed / Seed", "Pre-Series A / Series A", "Growth / Debt Scaling"], key="g_sc_stage")
+                    # ═══════════════════════════════════════════════════════
+                    # SECTION A: 🎯 AI-SUGGESTED MATCHES
+                    # ═══════════════════════════════════════════════════════
+                    st.markdown(f"""
+                    <div style="background:linear-gradient(135deg, #11131F 0%, #1E1B4B 100%); border:1.5px solid #8B5CF6; border-radius:14px; padding:1.2rem 1.5rem; margin-bottom:1.2rem; box-shadow:0 4px 20px rgba(139,92,246,0.15);">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <div style="font-size:1.15rem; font-weight:800; color:#FFFFFF;">🎯 AI-Suggested Scheme Matches</div>
+                                <div style="font-size:0.85rem; color:#A5B4FC; margin-top:2px;">Algorithmically matched against {html.escape(curr_asp['full_name'])}'s venture profile, sector, stage & demographics</div>
+                            </div>
+                            <span style="font-size:0.8rem; font-weight:700; background:rgba(139,92,246,0.3); color:#C4B5FD; padding:4px 12px; border-radius:8px;">Deterministic Engine</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-                    available_schemes = list_schemes(search=g_sc_search, category=g_sc_cat, stage=g_sc_stage, active_only=True)
+                    # Run matching engine (instant in-memory matching with pre-loaded profile)
+                    suggested_matches = match_schemes_for_aspirant(selected_asp_id, profile=curr_asp)
 
-                    if not available_schemes:
-                        st.info("No matching schemes found in master catalogue.")
+                    if not suggested_matches:
+                        st.info(f"No schemes scored ≥60% match for {curr_asp['full_name']}'s current profile. Try updating the Aspirant's profile data or browse the full catalogue below.")
                     else:
-                        scheme_dict = {
-                            s["id"]: f"{s['name']} ({s.get('agency','Govt')}) — {s.get('funding_type','Grant')} | {s.get('amount','')}"
-                            for s in available_schemes
-                        }
-                        eval_scheme_id = st.selectbox(
-                            "Select Scheme to Evaluate",
-                            list(scheme_dict.keys()),
-                            format_func=lambda x: scheme_dict[x],
-                            key="g_eval_scheme_select"
-                        )
+                        # Show summary metrics
+                        top_score = suggested_matches[0]["match_score"] if suggested_matches else 0
+                        high_matches = len([m for m in suggested_matches if m["match_score"] >= 80])
+                        st.markdown(f"""
+                        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:1rem;">
+                            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:10px; padding:0.85rem 1rem; text-align:center;">
+                                <div style="font-size:2rem; font-weight:800; color:#8B5CF6;">{len(suggested_matches)}</div>
+                                <div style="font-size:0.8rem; color:#64748B; font-weight:600;">Matched Schemes (≥60%)</div>
+                            </div>
+                            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:10px; padding:0.85rem 1rem; text-align:center;">
+                                <div style="font-size:2rem; font-weight:800; color:#10b981;">{high_matches}</div>
+                                <div style="font-size:0.8rem; color:#64748B; font-weight:600;">Recommended (≥80%)</div>
+                            </div>
+                            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:10px; padding:0.85rem 1rem; text-align:center;">
+                                <div style="font-size:2rem; font-weight:800; color:#F59E0B;">{top_score}%</div>
+                                <div style="font-size:0.8rem; color:#64748B; font-weight:600;">Top Match Score</div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
 
-                        col_btn1, col_btn2 = st.columns([2, 3])
-                        with col_btn1:
-                            gen_clicked = st.button("⚡ GENERATE SCHEME EVALUATION", type="primary", use_container_width=True, key=f"btn_gen_eval_{eval_scheme_id}")
+                        # Display top 10, rest in expander
+                        top_matches = suggested_matches[:10]
+                        remaining_matches = suggested_matches[10:]
 
-                        eval_state_key = f"active_eval_{selected_asp_id}_{eval_scheme_id}"
-                        if gen_clicked or st.session_state.get(eval_state_key):
-                            st.session_state[eval_state_key] = True
-                            evaluation = evaluate_scheme_for_aspirant(selected_asp_id, eval_scheme_id)
-                            eval_scheme = evaluation["scheme"]
+                        def _render_suggested_card(match, card_idx):
+                            """Render a single AI-suggested match as an expandable card."""
+                            m_score = match["match_score"]
+                            m_status = match["recommendation_status"]
+                            score_bg = "#10b981" if m_score >= 80 else "#F59E0B"
+                            m_scheme = match.get("scheme", match)
+                            m_name = html.escape(match.get("name", "Scheme"))
+                            m_agency = html.escape(match.get("agency", ""))
+                            m_amount = html.escape(match.get("amount", ""))
+                            m_ftype = html.escape(match.get("funding_type", "Grant"))
+                            m_id = match["id"]
 
-                            score = evaluation["match_score"]
-                            status_label = evaluation["recommendation_status"]
-                            score_color = "#10b981" if score >= 80 else "#f59e0b"
-
-                            st.markdown(f"""
-                            <div style="background:#11131F; border:1.5px solid #8B5CF6; border-radius:12px; padding:1.2rem; margin:1rem 0; box-shadow:0 4px 20px rgba(139,92,246,0.12);">
-                                <div style="display:flex; justify-content:space-between; align-items:center;">
-                                    <div>
-                                        <div style="font-size:1.2rem; font-weight:800; color:#FFFFFF;">{html.escape(eval_scheme.get('name','Untitled Scheme'))}</div>
-                                        <div style="font-size:0.85rem; color:#94A3B8; margin-top:2px;">
-                                            {html.escape(eval_scheme.get('agency',''))} · <span style="color:#C4B5FD; font-weight:700;">{html.escape(eval_scheme.get('funding_type','Grant'))}</span> · <span style="color:#34D399; font-weight:700;">{html.escape(eval_scheme.get('amount',''))}</span>
+                            with st.expander(f"{m_score}% — {match.get('name', 'Scheme')} ({m_agency}) · {m_ftype} | {match.get('amount', '')}", expanded=False):
+                                # Score banner
+                                st.markdown(f"""
+                                <div style="background:#11131F; border:1.5px solid #8B5CF6; border-radius:12px; padding:1rem; margin-bottom:0.75rem; box-shadow:0 4px 20px rgba(139,92,246,0.12);">
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <div>
+                                            <div style="font-size:1.1rem; font-weight:800; color:#FFFFFF;">{m_name}</div>
+                                            <div style="font-size:0.82rem; color:#94A3B8; margin-top:2px;">
+                                                {m_agency} · <span style="color:#C4B5FD; font-weight:700;">{m_ftype}</span> · <span style="color:#34D399; font-weight:700;">{m_amount}</span>
+                                            </div>
                                         </div>
+                                        <span style="background:{score_bg}; color:#ffffff; font-weight:800; font-size:0.9rem; padding:4px 14px; border-radius:12px;">{m_score}% ({m_status})</span>
                                     </div>
-                                    <span style="background:{score_color}; color:#ffffff; font-weight:800; font-size:0.95rem; padding:4px 14px; border-radius:12px;">{score}% Match ({status_label})</span>
                                 </div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                                """, unsafe_allow_html=True)
 
-                            # Match Reasons checklist & Eligibility
-                            reasons = evaluation.get("match_reasons", [])
-                            reasons_html = "".join([f"<li style='margin-bottom:3px;'><strong style='color:#10b981;'>✓</strong> {html.escape(r)}</li>" for r in reasons])
-                            st.markdown(f"""
-                            <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.75rem;">
-                                <strong style="color:#166534; font-size:0.9rem;">Match Reasoning & Profile Alignment:</strong>
-                                <ul style="font-size:0.85rem; color:#14532D; margin:0.4rem 0 0 1rem; padding:0;">{reasons_html}</ul>
-                            </div>
-                            """, unsafe_allow_html=True)
+                                # Match reasons
+                                reasons = match.get("match_reasons", [])
+                                reasons_html = "".join([f"<li style='margin-bottom:3px;'><strong style='color:#10b981;'>✓</strong> {html.escape(r)}</li>" for r in reasons])
+                                concerns = match.get("potential_concerns", [])
+                                concerns_html = "".join([f"<li style='margin-bottom:3px;'><strong style='color:#F59E0B;'>⚠</strong> {html.escape(c)}</li>" for c in concerns]) if concerns else ""
 
-                            # Guide-Only Private Intelligence
-                            agenda_text = eval_scheme.get("hidden_agenda")
-                            if isinstance(agenda_text, list):
-                                agenda_str = "<br>".join(f"• {html.escape(str(x))}" for x in agenda_text if str(x).strip())
-                            else:
-                                agenda_str = html.escape(str(agenda_text or "No hidden agenda specified."))
-
-                            flags_text = eval_scheme.get("red_flags")
-                            if isinstance(flags_text, list):
-                                flags_str = "<br>".join(f"• {html.escape(str(x))}" for x in flags_text if str(x).strip())
-                            else:
-                                flags_str = html.escape(str(flags_text or "No specific red flags identified."))
-
-                            st.markdown(f"""
-                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:1rem;">
-                                <div style="background:rgba(245,158,11,0.12); border-left:4px solid #F59E0B; padding:0.85rem; border-radius:0 8px 8px 0; font-size:0.84rem; color:#FCD34D; line-height:1.45;">
-                                    <div style="font-weight:800; color:#FBBF24; margin-bottom:4px; font-size:0.85rem;">🤫 INSIDER INTELLIGENCE / HIDDEN AGENDA (Guide Only):</div>
-                                    <div>{agenda_str}</div>
+                                st.markdown(f"""
+                                <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.5rem;">
+                                    <strong style="color:#166534; font-size:0.88rem;">Match Reasoning:</strong>
+                                    <ul style="font-size:0.83rem; color:#14532D; margin:0.3rem 0 0 1rem; padding:0;">{reasons_html}</ul>
                                 </div>
-                                <div style="background:rgba(239,68,68,0.12); border-left:4px solid #EF4444; padding:0.85rem; border-radius:0 8px 8px 0; font-size:0.84rem; color:#FCA5A5; line-height:1.45;">
-                                    <div style="font-weight:800; color:#F87171; margin-bottom:4px; font-size:0.85rem;">⚠️ RED FLAGS / STRICT CAUTIONS (Guide Only):</div>
-                                    <div>{flags_str}</div>
+                                """, unsafe_allow_html=True)
+
+                                if concerns_html:
+                                    st.markdown(f"""
+                                    <div style="background:#FFFBEB; border:1px solid #FDE68A; border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.5rem;">
+                                        <strong style="color:#92400E; font-size:0.88rem;">Potential Concerns:</strong>
+                                        <ul style="font-size:0.83rem; color:#78350F; margin:0.3rem 0 0 1rem; padding:0;">{concerns_html}</ul>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+
+                                # Guide-Only Private Intelligence
+                                agenda_text = m_scheme.get("hidden_agenda")
+                                if isinstance(agenda_text, list):
+                                    agenda_str = "<br>".join(f"• {html.escape(str(x))}" for x in agenda_text if str(x).strip())
+                                else:
+                                    agenda_str = html.escape(str(agenda_text or "No hidden agenda specified."))
+
+                                flags_text = m_scheme.get("red_flags")
+                                if isinstance(flags_text, list):
+                                    flags_str = "<br>".join(f"• {html.escape(str(x))}" for x in flags_text if str(x).strip())
+                                else:
+                                    flags_str = html.escape(str(flags_text or "No specific red flags identified."))
+
+                                st.markdown(f"""
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:0.75rem;">
+                                    <div style="background:rgba(245,158,11,0.12); border-left:4px solid #F59E0B; padding:0.75rem; border-radius:0 8px 8px 0; font-size:0.82rem; color:#FCD34D; line-height:1.4;">
+                                        <div style="font-weight:800; color:#FBBF24; margin-bottom:4px; font-size:0.82rem;">🤫 INSIDER INTELLIGENCE (Guide Only):</div>
+                                        <div>{agenda_str}</div>
+                                    </div>
+                                    <div style="background:rgba(239,68,68,0.12); border-left:4px solid #EF4444; padding:0.75rem; border-radius:0 8px 8px 0; font-size:0.82rem; color:#FCA5A5; line-height:1.4;">
+                                        <div style="font-weight:800; color:#F87171; margin-bottom:4px; font-size:0.82rem;">⚠️ RED FLAGS (Guide Only):</div>
+                                        <div>{flags_str}</div>
+                                    </div>
                                 </div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                                """, unsafe_allow_html=True)
 
-                            # Release Action Form
-                            with st.form(f"form_release_{selected_asp_id}_{eval_scheme_id}"):
-                                st.markdown("#### 🎯 Release Scheme to Aspirant")
-                                g_rec_input = st.text_area(
-                                    "Guide Recommendation Note for Aspirant * (Visible to the founder)",
-                                    placeholder=f"e.g. Recommended because your venture qualifies for 35% capital subsidy under {eval_scheme.get('name')}. Ensure your project DPR is completed before applying.",
-                                    height=90
-                                )
-                                g_note_input = st.text_input(
-                                    "Internal Guide Note (Private record for Guide and Admin, hidden from founder)",
-                                    placeholder="e.g. Founder needs follow-up session on bank branch manager contact."
-                                )
-
-                                rel_submit = st.form_submit_button("🚀 RELEASE TO ASPIRANT", type="primary", use_container_width=True)
-                                if rel_submit:
-                                    if not g_rec_input.strip():
-                                        st.warning("Please provide a recommendation note explaining why you recommend this scheme.")
-                                    else:
-                                        ok, msg = release_scheme_to_aspirant(
-                                            guide_id=guide_id,
-                                            aspirant_id=selected_asp_id,
-                                            scheme_id=eval_scheme_id,
-                                            guide_recommendation=g_rec_input.strip(),
-                                            guide_note=g_note_input.strip()
-                                        )
-                                        if ok:
-                                            st.success(f"Successfully released '{eval_scheme.get('name')}' to {curr_asp['full_name']}!")
-                                            st.rerun()
+                                # Release Form
+                                with st.form(f"form_sug_release_{selected_asp_id}_{m_id}_{card_idx}"):
+                                    st.markdown("##### 🎯 Release This Scheme to Aspirant")
+                                    sg_rec = st.text_area(
+                                        "Recommendation Note * (Visible to founder)",
+                                        placeholder=f"e.g. Your venture qualifies for {match.get('amount', 'this funding')} under {match.get('name')}. Prepare your DPR before applying.",
+                                        height=80,
+                                        key=f"sug_rec_{m_id}_{card_idx}"
+                                    )
+                                    sg_note = st.text_input(
+                                        "Internal Guide Note (Hidden from founder)",
+                                        placeholder="e.g. Follow up on bank branch manager contact.",
+                                        key=f"sug_note_{m_id}_{card_idx}"
+                                    )
+                                    if st.form_submit_button("🚀 RELEASE TO ASPIRANT", type="primary", use_container_width=True):
+                                        if not sg_rec.strip():
+                                            st.warning("Please provide a recommendation note.")
                                         else:
-                                            st.error(msg or "Failed to release scheme.")
+                                            ok, msg = release_scheme_to_aspirant(
+                                                guide_id=guide_id,
+                                                aspirant_id=selected_asp_id,
+                                                scheme_id=m_id,
+                                                guide_recommendation=sg_rec.strip(),
+                                                guide_note=sg_note.strip()
+                                            )
+                                            if ok:
+                                                st.success(f"Released '{match.get('name')}' to {curr_asp['full_name']}!")
+                                                st.rerun()
+                                            else:
+                                                st.error(msg or "Failed to release scheme.")
+
+                        # Render top 10
+                        for idx, m in enumerate(top_matches):
+                            _render_suggested_card(m, idx)
+
+                        # Remaining matches in expander
+                        if remaining_matches:
+                            with st.expander(f"📊 View {len(remaining_matches)} More Matches (60-{remaining_matches[0]['match_score']}%)", expanded=False):
+                                for idx, m in enumerate(remaining_matches):
+                                    _render_suggested_card(m, idx + 10)
+
+                    # ═══════════════════════════════════════════════════════
+                    # SECTION B: 📋 BROWSE FULL CATALOGUE
+                    # ═══════════════════════════════════════════════════════
+                    st.markdown("---")
+                    with st.expander("📋 Browse Full Master Catalogue (Manual Search & Evaluate)", expanded=False):
+                        st.markdown(f"<p style='color:#64748B; font-size:0.85rem;'>Manually search the entire 170+ scheme catalogue. Useful for finding schemes the algorithm may have scored below 60% threshold.</p>", unsafe_allow_html=True)
+
+                        c_s1, c_s2, c_s3 = st.columns([2.5, 1.2, 1.2])
+                        with c_s1:
+                            g_sc_search = st.text_input("🔍 Search Master Catalogue", placeholder="e.g. PMEGP, TANSEED, NEEDS, MUDRA...", key="g_sc_search")
+                        with c_s2:
+                            g_sc_cat = st.selectbox("Category", ["ALL", "Central Govt", "State Govt", "Private VC / Angel", "Foreign / Global"], key="g_sc_cat")
+                        with c_s3:
+                            g_sc_stage = st.selectbox("Stage", ["ALL", "Ideation / R&D", "Pre-Seed / Seed", "Pre-Series A / Series A", "Growth / Debt Scaling"], key="g_sc_stage")
+
+                        available_schemes = list_schemes(search=g_sc_search, category=g_sc_cat, stage=g_sc_stage, active_only=True)
+
+                        if not available_schemes:
+                            st.info("No matching schemes found in master catalogue.")
+                        else:
+                            scheme_dict = {
+                                s["id"]: f"{s['name']} ({s.get('agency','Govt')}) — {s.get('funding_type','Grant')} | {s.get('amount','')}"
+                                for s in available_schemes
+                            }
+                            eval_scheme_id = st.selectbox(
+                                "Select Scheme to Evaluate",
+                                list(scheme_dict.keys()),
+                                format_func=lambda x: scheme_dict[x],
+                                key="g_eval_scheme_select"
+                            )
+
+                            col_btn1, col_btn2 = st.columns([2, 3])
+                            with col_btn1:
+                                gen_clicked = st.button("⚡ GENERATE SCHEME EVALUATION", type="primary", use_container_width=True, key=f"btn_gen_eval_{eval_scheme_id}")
+
+                            eval_state_key = f"active_eval_{selected_asp_id}_{eval_scheme_id}"
+                            if gen_clicked or st.session_state.get(eval_state_key):
+                                st.session_state[eval_state_key] = True
+                                evaluation = evaluate_scheme_for_aspirant(selected_asp_id, eval_scheme_id)
+                                eval_scheme = evaluation["scheme"]
+
+                                score = evaluation["match_score"]
+                                status_label = evaluation["recommendation_status"]
+                                score_color = "#10b981" if score >= 80 else "#f59e0b"
+
+                                st.markdown(f"""
+                                <div style="background:#11131F; border:1.5px solid #8B5CF6; border-radius:12px; padding:1.2rem; margin:1rem 0; box-shadow:0 4px 20px rgba(139,92,246,0.12);">
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <div>
+                                            <div style="font-size:1.2rem; font-weight:800; color:#FFFFFF;">{html.escape(eval_scheme.get('name','Untitled Scheme'))}</div>
+                                            <div style="font-size:0.85rem; color:#94A3B8; margin-top:2px;">
+                                                {html.escape(eval_scheme.get('agency',''))} · <span style="color:#C4B5FD; font-weight:700;">{html.escape(eval_scheme.get('funding_type','Grant'))}</span> · <span style="color:#34D399; font-weight:700;">{html.escape(eval_scheme.get('amount',''))}</span>
+                                            </div>
+                                        </div>
+                                        <span style="background:{score_color}; color:#ffffff; font-weight:800; font-size:0.95rem; padding:4px 14px; border-radius:12px;">{score}% Match ({status_label})</span>
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+                                # Match Reasons checklist & Eligibility
+                                reasons = evaluation.get("match_reasons", [])
+                                reasons_html = "".join([f"<li style='margin-bottom:3px;'><strong style='color:#10b981;'>✓</strong> {html.escape(r)}</li>" for r in reasons])
+                                st.markdown(f"""
+                                <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.75rem;">
+                                    <strong style="color:#166534; font-size:0.9rem;">Match Reasoning & Profile Alignment:</strong>
+                                    <ul style="font-size:0.85rem; color:#14532D; margin:0.4rem 0 0 1rem; padding:0;">{reasons_html}</ul>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+                                # Guide-Only Private Intelligence
+                                agenda_text = eval_scheme.get("hidden_agenda")
+                                if isinstance(agenda_text, list):
+                                    agenda_str = "<br>".join(f"• {html.escape(str(x))}" for x in agenda_text if str(x).strip())
+                                else:
+                                    agenda_str = html.escape(str(agenda_text or "No hidden agenda specified."))
+
+                                flags_text = eval_scheme.get("red_flags")
+                                if isinstance(flags_text, list):
+                                    flags_str = "<br>".join(f"• {html.escape(str(x))}" for x in flags_text if str(x).strip())
+                                else:
+                                    flags_str = html.escape(str(flags_text or "No specific red flags identified."))
+
+                                st.markdown(f"""
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:1rem;">
+                                    <div style="background:rgba(245,158,11,0.12); border-left:4px solid #F59E0B; padding:0.85rem; border-radius:0 8px 8px 0; font-size:0.84rem; color:#FCD34D; line-height:1.45;">
+                                        <div style="font-weight:800; color:#FBBF24; margin-bottom:4px; font-size:0.85rem;">🤫 INSIDER INTELLIGENCE / HIDDEN AGENDA (Guide Only):</div>
+                                        <div>{agenda_str}</div>
+                                    </div>
+                                    <div style="background:rgba(239,68,68,0.12); border-left:4px solid #EF4444; padding:0.85rem; border-radius:0 8px 8px 0; font-size:0.84rem; color:#FCA5A5; line-height:1.45;">
+                                        <div style="font-weight:800; color:#F87171; margin-bottom:4px; font-size:0.85rem;">⚠️ RED FLAGS / STRICT CAUTIONS (Guide Only):</div>
+                                        <div>{flags_str}</div>
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+                                # Release Action Form
+                                with st.form(f"form_release_{selected_asp_id}_{eval_scheme_id}"):
+                                    st.markdown("#### 🎯 Release Scheme to Aspirant")
+                                    g_rec_input = st.text_area(
+                                        "Guide Recommendation Note for Aspirant * (Visible to the founder)",
+                                        placeholder=f"e.g. Recommended because your venture qualifies for 35% capital subsidy under {eval_scheme.get('name')}. Ensure your project DPR is completed before applying.",
+                                        height=90
+                                    )
+                                    g_note_input = st.text_input(
+                                        "Internal Guide Note (Private record for Guide and Admin, hidden from founder)",
+                                        placeholder="e.g. Founder needs follow-up session on bank branch manager contact."
+                                    )
+
+                                    rel_submit = st.form_submit_button("🚀 RELEASE TO ASPIRANT", type="primary", use_container_width=True)
+                                    if rel_submit:
+                                        if not g_rec_input.strip():
+                                            st.warning("Please provide a recommendation note explaining why you recommend this scheme.")
+                                        else:
+                                            ok, msg = release_scheme_to_aspirant(
+                                                guide_id=guide_id,
+                                                aspirant_id=selected_asp_id,
+                                                scheme_id=eval_scheme_id,
+                                                guide_recommendation=g_rec_input.strip(),
+                                                guide_note=g_note_input.strip()
+                                            )
+                                            if ok:
+                                                st.success(f"Successfully released '{eval_scheme.get('name')}' to {curr_asp['full_name']}!")
+                                                st.rerun()
+                                            else:
+                                                st.error(msg or "Failed to release scheme.")
 
                     # ─────────────────────────────────────────────────────
                     # RELEASE HISTORY & MANAGEMENT SECTION

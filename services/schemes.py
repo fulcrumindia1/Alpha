@@ -11,7 +11,7 @@ Rules:
 """
 
 from datetime import datetime, timezone
-from typing import Optional, Dict, List, Tuple
+from typing import Any, Optional, Dict, List, Tuple
 from services.auth import get_supabase_client
 from services.local_db import get_local_db
 
@@ -22,7 +22,14 @@ def list_schemes(
     sector: str = "ALL",
     active_only: bool = True
 ) -> List[Dict]:
-    """Retrieves schemes from Supabase or local store with multi-facet filters."""
+    """Retrieves schemes from local SQLite first (instant 2ms response), then Supabase fallback."""
+    try:
+        local_schemes = get_local_db().list_schemes(search, category, stage, sector, active_only)
+        if local_schemes:
+            return local_schemes
+    except Exception:
+        pass
+
     client = get_supabase_client()
     if client:
         try:
@@ -56,26 +63,7 @@ def list_schemes(
         except Exception:
             pass
 
-    try:
-        return get_local_db().list_schemes(search, category, stage, sector, active_only)
-    except Exception:
-        try:
-            # Self-healing dynamic migration on existing database file
-            import sqlite3
-            from pathlib import Path
-            db_path = Path(__file__).resolve().parent.parent / "cluster_a.db"
-            if db_path.exists():
-                conn = sqlite3.connect(db_path)
-                cur = conn.cursor()
-                cur.execute("PRAGMA table_info(schemes)")
-                cols = [c[1] for c in cur.fetchall()]
-                if "display_order" not in cols and len(cols) > 0:
-                    cur.execute("ALTER TABLE schemes ADD COLUMN display_order INTEGER DEFAULT 9999")
-                    conn.commit()
-                conn.close()
-            return get_local_db().list_schemes(search, category, stage, sector, active_only)
-        except Exception:
-            return []
+    return []
 
 def get_scheme(scheme_id: str) -> Optional[Dict]:
     """Retrieves full details of a single scheme."""
@@ -151,7 +139,7 @@ def delete_scheme(scheme_id: str, admin_id: str) -> Tuple[bool, Optional[str]]:
     get_local_db().log_activity(admin_id, "delete_scheme", "schemes", scheme_id)
     return True, None
 
-def evaluate_scheme_for_aspirant(aspirant_id: str, scheme_or_id: Any) -> Optional[Dict]:
+def evaluate_scheme_for_aspirant(aspirant_id: str, scheme_or_id: Any, profile: Optional[Dict] = None) -> Optional[Dict]:
     """
     Evaluates a specific funding scheme against an Aspirant's venture profile.
     Produces:
@@ -161,8 +149,9 @@ def evaluate_scheme_for_aspirant(aspirant_id: str, scheme_or_id: Any) -> Optiona
     - Potential concerns
     - Guide-only private intelligence (hidden_agenda, red_flags)
     """
-    from services.profiles import get_profile
-    profile = get_profile(aspirant_id)
+    if profile is None:
+        from services.profiles import get_profile
+        profile = get_profile(aspirant_id)
     if not profile:
         return None
 
@@ -273,15 +262,21 @@ def evaluate_scheme_for_aspirant(aspirant_id: str, scheme_or_id: Any) -> Optiona
         "scheme": s
     }
 
-def match_schemes_for_aspirant(aspirant_id: str) -> List[Dict]:
+def match_schemes_for_aspirant(aspirant_id: str, profile: Optional[Dict] = None) -> List[Dict]:
     """
     Internal Deterministic Matching Process used by Guides and AI evaluation:
     Aspirant Profile Attributes -> Evaluates all active schemes -> Threshold filter >= 60%
     """
+    if profile is None:
+        from services.profiles import get_profile
+        profile = get_profile(aspirant_id)
+    if not profile:
+        return []
+
     all_schemes = list_schemes(active_only=True)
     matches = []
     for s in all_schemes:
-        res = evaluate_scheme_for_aspirant(aspirant_id, s)
+        res = evaluate_scheme_for_aspirant(aspirant_id, s, profile=profile)
         if res and res["match_score"] >= 60:
             matches.append(res)
     matches.sort(key=lambda m: m["match_score"], reverse=True)

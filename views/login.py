@@ -144,8 +144,17 @@ def render_login_page():
         margin-bottom: 4px;
     }
 
+    /* Clean st.form container to avoid default double border and padding */
+    div[data-testid="stForm"] {
+        border: none !important;
+        padding: 0 !important;
+        background: transparent !important;
+        margin: 0 !important;
+    }
+
     /* Brand Blue Login Button - High Contrast & Refined */
-    .stButton > button {
+    .stButton > button,
+    div[data-testid="stFormSubmitButton"] > button {
         background-color: #2563EB !important;
         background-image: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
         color: #FFFFFF !important;
@@ -158,20 +167,25 @@ def render_login_page():
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important;
         transition: all 0.15s ease-in-out !important;
     }
-    .stButton > button:hover {
+    .stButton > button:hover,
+    div[data-testid="stFormSubmitButton"] > button:hover {
         background-color: #1D4ED8 !important;
         background-image: none !important;
         border-color: #1E40AF !important;
         box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35) !important;
         transform: translateY(-1px);
     }
-    .stButton > button:active {
+    .stButton > button:active,
+    div[data-testid="stFormSubmitButton"] > button:active {
         transform: translateY(0);
         box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2) !important;
     }
     .stButton > button p,
     .stButton > button span,
-    .stButton > button div {
+    .stButton > button div,
+    div[data-testid="stFormSubmitButton"] > button p,
+    div[data-testid="stFormSubmitButton"] > button span,
+    div[data-testid="stFormSubmitButton"] > button div {
         color: #FFFFFF !important;
         font-weight: 700 !important;
     }
@@ -239,28 +253,30 @@ def render_login_page():
         with tab_login:
             st.markdown("<p style='font-size: 0.84rem; color: #64748B; margin-bottom: 1.25rem;'>Enter your credentials to access your verified dashboard.</p>", unsafe_allow_html=True)
             
-            login_email = st.text_input(
-                "Email Address",
-                placeholder="name@domain.in",
-                key="input_login_email"
-            )
-            login_password = st.text_input(
-                "Password",
-                type="password",
-                placeholder="••••••••",
-                key="input_login_pwd"
-            )
+            with st.form("login_form", clear_on_submit=False):
+                login_email = st.text_input(
+                    "Email Address",
+                    placeholder="name@domain.in",
+                    key="input_login_email"
+                )
+                login_password = st.text_input(
+                    "Password",
+                    type="password",
+                    placeholder="••••••••",
+                    key="input_login_pwd"
+                )
 
-            st.write("")
-            if st.button("LOGIN", use_container_width=True, key="btn_do_login"):
-                if login_email and login_password:
-                    profile, err = login_user(login_email, login_password)
-                    if profile:
-                        st.rerun()
+                st.write("")
+                submit_login = st.form_submit_button("LOGIN", use_container_width=True)
+                if submit_login:
+                    if login_email and login_password:
+                        profile, err = login_user(login_email, login_password)
+                        if profile:
+                            st.rerun()
+                        else:
+                            st.error(err or "Invalid credentials. Please verify your email and password.")
                     else:
-                        st.error(err or "Invalid credentials. Please verify your email and password.")
-                else:
-                    st.warning("Please enter your email and password.")
+                        st.warning("Please enter your email and password.")
 
             # Clear Credentials Reference Box
             st.markdown("""
