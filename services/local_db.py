@@ -163,6 +163,32 @@ class LocalDatabase:
         );
         """)
 
+        # 8. Scheme Releases (Guide Governance & Visibility Gate)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS scheme_releases (
+            id TEXT PRIMARY KEY,
+            aspirant_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            guide_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            scheme_id TEXT NOT NULL REFERENCES schemes(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'RELEASED' CHECK(status IN ('DRAFT', 'RELEASED', 'WITHDRAWN')),
+            guide_note TEXT,
+            guide_recommendation TEXT,
+            eligibility_summary TEXT,
+            released_at TEXT,
+            released_by TEXT REFERENCES profiles(id),
+            withdrawn_at TEXT,
+            withdrawn_by TEXT REFERENCES profiles(id),
+            created_at TEXT,
+            updated_at TEXT,
+            UNIQUE(aspirant_id, scheme_id)
+        );
+        """)
+
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_sr_aspirant ON scheme_releases(aspirant_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_sr_guide ON scheme_releases(guide_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_sr_scheme ON scheme_releases(scheme_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_sr_status ON scheme_releases(status);")
+
         conn.commit()
 
         # Dynamic schema migration: ensure display_order exists in schemes table
@@ -174,6 +200,32 @@ class LocalDatabase:
                 conn.commit()
             except Exception as e:
                 print(f"[LocalDB] Migration notice: {e}")
+
+        # Dynamic schema migration: ensure guide routing & escalation columns exist in help_requests
+        cur.execute("PRAGMA table_info(help_requests)")
+        hr_cols = [r[1] for r in cur.fetchall()]
+        if "assigned_guide_id" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN assigned_guide_id TEXT REFERENCES profiles(id)")
+            except Exception: pass
+        if "assigned_at" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN assigned_at TEXT")
+            except Exception: pass
+        if "last_handled_at" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN last_handled_at TEXT")
+            except Exception: pass
+        if "escalated_at" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN escalated_at TEXT")
+            except Exception: pass
+        if "escalation_reason" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN escalation_reason TEXT")
+            except Exception: pass
+        if "resolved_by" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN resolved_by TEXT REFERENCES profiles(id)")
+            except Exception: pass
+        if "guide_response" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN guide_response TEXT")
+            except Exception: pass
+        conn.commit()
 
         # Seed default demo accounts (Admin, Guide, SME, Aspirant) if missing
         cur.execute("SELECT id FROM profiles WHERE role = 'admin' LIMIT 1")
@@ -577,16 +629,17 @@ class LocalDatabase:
         return changes > 0
 
     # ── HELP REQUESTS ──
-    def create_help_request(self, aspirant_id: str, subject: str, message: str, priority: str = "MEDIUM") -> Dict:
+    def create_help_request(self, aspirant_id: str, subject: str, message: str, priority: str = "MEDIUM", assigned_guide_id: Optional[str] = None) -> Dict:
         conn = self._get_conn()
         cur = conn.cursor()
         import uuid
         req_id = str(uuid.uuid4())
         now_iso = datetime.now(timezone.utc).isoformat()
+        assigned_at = now_iso if assigned_guide_id else None
         cur.execute("""
-        INSERT INTO help_requests (id, aspirant_id, subject, message, priority, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?)
-        """, (req_id, aspirant_id, subject, message, priority, now_iso, now_iso))
+        INSERT INTO help_requests (id, aspirant_id, subject, message, priority, status, assigned_guide_id, assigned_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
+        """, (req_id, aspirant_id, subject, message, priority, assigned_guide_id, assigned_at, now_iso, now_iso))
         conn.commit()
         conn.close()
         return {
@@ -596,25 +649,38 @@ class LocalDatabase:
             "message": message,
             "priority": priority,
             "status": "OPEN",
+            "assigned_guide_id": assigned_guide_id,
+            "assigned_at": assigned_at,
             "created_at": now_iso
         }
 
-    def list_help_requests(self, aspirant_id: Optional[str] = None) -> List[Dict]:
+    def list_help_requests(self, aspirant_id: Optional[str] = None, guide_id: Optional[str] = None) -> List[Dict]:
         conn = self._get_conn()
         cur = conn.cursor()
         if aspirant_id:
             cur.execute("""
-            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email
+            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email, g.full_name as guide_name
             FROM help_requests h
             JOIN profiles p ON h.aspirant_id = p.id
+            LEFT JOIN profiles g ON h.assigned_guide_id = g.id
             WHERE h.aspirant_id = ?
             ORDER BY h.created_at DESC
             """, (aspirant_id,))
-        else:
+        elif guide_id:
             cur.execute("""
-            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email
+            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email, g.full_name as guide_name
             FROM help_requests h
             JOIN profiles p ON h.aspirant_id = p.id
+            LEFT JOIN profiles g ON h.assigned_guide_id = g.id
+            WHERE h.assigned_guide_id = ?
+            ORDER BY h.created_at DESC
+            """, (guide_id,))
+        else:
+            cur.execute("""
+            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email, g.full_name as guide_name
+            FROM help_requests h
+            JOIN profiles p ON h.aspirant_id = p.id
+            LEFT JOIN profiles g ON h.assigned_guide_id = g.id
             ORDER BY h.created_at DESC
             """)
         rows = cur.fetchall()
@@ -625,14 +691,172 @@ class LocalDatabase:
         conn = self._get_conn()
         cur = conn.cursor()
         now_iso = datetime.now(timezone.utc).isoformat()
+        resolved_by = responded_by if status == "RESOLVED" else None
         cur.execute("""
         UPDATE help_requests
-        SET status = ?, admin_response = ?, responded_by = ?, updated_at = ?
+        SET status = ?, admin_response = ?, responded_by = ?, resolved_by = COALESCE(resolved_by, ?), updated_at = ?
         WHERE id = ?
-        """, (status, admin_response, responded_by, now_iso, request_id))
+        """, (status, admin_response, responded_by, resolved_by, now_iso, request_id))
         conn.commit()
         conn.close()
         return True
+
+    def guide_respond_help_request(self, request_id: str, guide_id: str, status: str, guide_response: str) -> bool:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        resolved_by = guide_id if status == "RESOLVED" else None
+        cur.execute("""
+        UPDATE help_requests
+        SET status = ?, guide_response = ?, last_handled_at = ?, resolved_by = COALESCE(resolved_by, ?), updated_at = ?
+        WHERE id = ? AND (assigned_guide_id = ? OR assigned_guide_id IS NULL)
+        """, (status, guide_response, now_iso, resolved_by, now_iso, request_id, guide_id))
+        conn.commit()
+        changes = conn.total_changes
+        conn.close()
+        return changes > 0
+
+    def escalate_overdue_help_requests(self) -> int:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cur.execute("""
+        UPDATE help_requests
+        SET status = 'ESCALATED',
+            escalated_at = ?,
+            escalation_reason = 'Automatically escalated after 7 days without resolution.',
+            updated_at = ?
+        WHERE status IN ('OPEN', 'IN_PROGRESS')
+          AND datetime(created_at) <= datetime('now', '-7 days')
+        """, (now_iso, now_iso))
+        count = cur.rowcount
+        conn.commit()
+        conn.close()
+        return max(0, count)
+
+    # ── SCHEME RELEASES (Guide Governance) ──
+    def create_or_update_scheme_release(
+        self,
+        aspirant_id: str,
+        guide_id: str,
+        scheme_id: str,
+        guide_recommendation: str,
+        guide_note: str = "",
+        eligibility_summary: str = ""
+    ) -> Dict:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        import uuid
+        now_iso = datetime.now(timezone.utc).isoformat()
+        rel_id = str(uuid.uuid4())
+
+        cur.execute("""
+        INSERT INTO scheme_releases (
+            id, aspirant_id, guide_id, scheme_id, status, guide_note,
+            guide_recommendation, eligibility_summary, released_at, released_by,
+            withdrawn_at, withdrawn_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'RELEASED', ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+        ON CONFLICT(aspirant_id, scheme_id) DO UPDATE SET
+            guide_id = excluded.guide_id,
+            status = 'RELEASED',
+            guide_note = excluded.guide_note,
+            guide_recommendation = excluded.guide_recommendation,
+            eligibility_summary = excluded.eligibility_summary,
+            released_at = excluded.released_at,
+            released_by = excluded.released_by,
+            withdrawn_at = NULL,
+            withdrawn_by = NULL,
+            updated_at = excluded.updated_at
+        """, (
+            rel_id, aspirant_id, guide_id, scheme_id, guide_note,
+            guide_recommendation, eligibility_summary, now_iso, guide_id,
+            now_iso, now_iso
+        ))
+        conn.commit()
+
+        cur.execute("SELECT * FROM scheme_releases WHERE aspirant_id = ? AND scheme_id = ?", (aspirant_id, scheme_id))
+        row = cur.fetchone()
+        conn.close()
+        return dict(row) if row else {}
+
+    def withdraw_scheme_release(self, aspirant_id: str, scheme_id: str, guide_id: str) -> bool:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cur.execute("""
+        UPDATE scheme_releases
+        SET status = 'WITHDRAWN',
+            withdrawn_at = ?,
+            withdrawn_by = ?,
+            updated_at = ?
+        WHERE aspirant_id = ? AND scheme_id = ?
+        """, (now_iso, guide_id, now_iso, aspirant_id, scheme_id))
+        conn.commit()
+        changes = conn.total_changes
+        conn.close()
+        return changes > 0
+
+    def get_released_schemes_for_aspirant(self, aspirant_id: str) -> List[Dict]:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+        SELECT s.*, r.id as release_id, r.guide_id, r.guide_recommendation, r.guide_note,
+               r.released_at, r.status as release_status, g.full_name as guide_name
+        FROM scheme_releases r
+        JOIN schemes s ON r.scheme_id = s.id
+        LEFT JOIN profiles g ON r.guide_id = g.id
+        WHERE r.aspirant_id = ? AND r.status = 'RELEASED' AND s.is_active = 1
+        ORDER BY r.released_at DESC
+        """, (aspirant_id,))
+        rows = cur.fetchall()
+        conn.close()
+        res = []
+        for r in rows:
+            d = dict(r)
+            d["sectors"] = json.loads(d["sectors"]) if d.get("sectors") else []
+            d["eligibility"] = json.loads(d["eligibility"]) if d.get("eligibility") else []
+            d["terms"] = json.loads(d["terms"]) if d.get("terms") else []
+            # STRICTLY STRIP GUIDE-ONLY PRIVATE INTELLIGENCE FOR ASPIRANT
+            d["hidden_agenda"] = []
+            d["red_flags"] = []
+            d["application_prompt"] = ""
+            res.append(d)
+        return res
+
+    def get_scheme_releases_for_guide(self, guide_id: str, aspirant_id: Optional[str] = None) -> List[Dict]:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        if aspirant_id:
+            cur.execute("""
+            SELECT r.*, s.name as scheme_name, s.agency as scheme_agency, s.amount as scheme_amount,
+                   p.full_name as aspirant_name, p.email as aspirant_email
+            FROM scheme_releases r
+            JOIN schemes s ON r.scheme_id = s.id
+            JOIN profiles p ON r.aspirant_id = p.id
+            WHERE r.guide_id = ? AND r.aspirant_id = ?
+            ORDER BY r.updated_at DESC
+            """, (guide_id, aspirant_id))
+        else:
+            cur.execute("""
+            SELECT r.*, s.name as scheme_name, s.agency as scheme_agency, s.amount as scheme_amount,
+                   p.full_name as aspirant_name, p.email as aspirant_email
+            FROM scheme_releases r
+            JOIN schemes s ON r.scheme_id = s.id
+            JOIN profiles p ON r.aspirant_id = p.id
+            WHERE r.guide_id = ?
+            ORDER BY r.updated_at DESC
+            """, (guide_id,))
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def get_scheme_release(self, aspirant_id: str, scheme_id: str) -> Optional[Dict]:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM scheme_releases WHERE aspirant_id = ? AND scheme_id = ?", (aspirant_id, scheme_id))
+        row = cur.fetchone()
+        conn.close()
+        return dict(row) if row else None
 
     # ── SCHEMES ──
     def list_schemes(self, search: str = "", category: str = "ALL", stage: str = "ALL", sector: str = "ALL", active_only: bool = True) -> List[Dict]:

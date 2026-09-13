@@ -22,12 +22,18 @@ from services.relationships import get_aspirant_mentors, assign_guide, assign_sm
 from services.journey import get_journey_timeline, soft_delete_event, log_meaningful_event
 from services.schemes import list_schemes, get_scheme, upsert_scheme, toggle_archive_scheme, delete_scheme, match_schemes_for_aspirant
 from services.schemes_ui import render_fund_explorer_card
-from services.help_requests import list_requests, resolve_request
+from services.help_requests import list_requests, resolve_request, check_and_escalate_overdue_requests
 
 def render_admin_portal(admin_profile: dict):
     admin_id = admin_profile["id"]
     admin_name = admin_profile.get("full_name", "Administrator")
     local_db = get_local_db()
+
+    # Automatically check for and escalate overdue tickets (>7 days)
+    try:
+        check_and_escalate_overdue_requests()
+    except Exception:
+        pass
 
     st.markdown(f"""
     <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:1.5rem; padding-bottom:1rem; border-bottom:1px solid #E2E8F0;">
@@ -372,24 +378,43 @@ def render_admin_portal(admin_profile: dict):
             for ticket in help_tickets:
                 t_id = ticket["id"]
                 t_status = ticket.get("status", "OPEN")
-                st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981"
+                is_escalated = (t_status == "ESCALATED")
+                st_color = "#ef4444" if is_escalated else "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981"
+                badge_label = "🚨 ESCALATED" if is_escalated else t_status
 
-                with st.expander(f"[{t_status}] {ticket.get('aspirant_name', 'Founder')}: {ticket.get('subject')} (Priority: {ticket.get('priority', 'MEDIUM')})"):
+                with st.expander(f"[{badge_label}] {ticket.get('aspirant_name', 'Founder')}: {ticket.get('subject')} (Priority: {ticket.get('priority', 'MEDIUM')})", expanded=is_escalated):
+                    if is_escalated:
+                        st.markdown(f"""
+                        <div style="background:#FEF2F2; border:1.5px solid #EF4444; border-radius:8px; padding:0.65rem 0.9rem; margin-bottom:0.75rem; color:#991B1B;">
+                            <strong>🚨 OVERDUE ESCALATION NOTICE:</strong> {ticket.get('escalation_reason') or 'Automatically escalated after 7 days without resolution.'}
+                            <div style="font-size:0.8rem; color:#B91C1C; margin-top:2px;">Escalated At: {str(ticket.get('escalated_at',''))[:19]}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
                     st.markdown(f"""
                     <div style="font-size:0.95rem; color:#0F172A; margin-bottom:0.75rem;">
                         <strong>Message:</strong> {ticket.get('message')}
                     </div>
-                    <div style="font-size:0.8rem; color:#64748B; margin-bottom:1rem;">
+                    <div style="font-size:0.8rem; color:#64748B; margin-bottom:0.75rem;">
                         Founder Email: {ticket.get('aspirant_email')} | Submitted: {str(ticket.get('created_at',''))[:19]}
                     </div>
                     """, unsafe_allow_html=True)
 
+                    if ticket.get("guide_response"):
+                        st.markdown(f"""
+                        <div style="background:#F0FDF4; border-left:3px solid #10b981; border:1px solid #BBF7D0; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#166534; margin-bottom:0.75rem;">
+                            <strong>Assigned Guide Response:</strong> {ticket.get('guide_response')}
+                        </div>
+                        """, unsafe_allow_html=True)
+
                     with st.form(f"form_resp_{t_id}"):
                         c_st1, c_st2 = st.columns([1, 3])
                         with c_st1:
-                            new_st = st.selectbox("Update Status", ["OPEN", "IN_PROGRESS", "RESOLVED"], index=["OPEN", "IN_PROGRESS", "RESOLVED"].index(t_status))
+                            status_choices = ["OPEN", "IN_PROGRESS", "RESOLVED", "ESCALATED"]
+                            cur_idx = status_choices.index(t_status) if t_status in status_choices else 0
+                            new_st = st.selectbox("Update Status", status_choices, index=cur_idx)
                         with c_st2:
-                            resp_text = st.text_input("Admin Response", value=ticket.get("admin_response") or "Reviewed. Assigned guidance specialist.")
+                            resp_text = st.text_input("Admin Response", value=ticket.get("admin_response") or "Reviewed and resolved by Program Administrator.")
 
                         if st.form_submit_button("SUBMIT RESPONSE & UPDATE", type="primary"):
                             ok, err = resolve_request(t_id, new_st, resp_text, admin_id)

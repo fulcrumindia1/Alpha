@@ -379,6 +379,20 @@ DROP POLICY IF EXISTS "Aspirant insert own help requests" ON public.help_request
 CREATE POLICY "Aspirant insert own help requests" ON public.help_requests
     FOR INSERT TO authenticated WITH CHECK (aspirant_id = auth.uid());
 
+DROP POLICY IF EXISTS "Guides view assigned help requests" ON public.help_requests;
+CREATE POLICY "Guides view assigned help requests" ON public.help_requests
+    FOR SELECT TO authenticated USING (
+        assigned_guide_id = auth.uid() OR
+        aspirant_id IN (SELECT aspirant_id FROM public.relationships WHERE guide_id = auth.uid())
+    );
+
+DROP POLICY IF EXISTS "Guides update assigned help requests" ON public.help_requests;
+CREATE POLICY "Guides update assigned help requests" ON public.help_requests
+    FOR UPDATE TO authenticated USING (
+        assigned_guide_id = auth.uid() OR
+        aspirant_id IN (SELECT aspirant_id FROM public.relationships WHERE guide_id = auth.uid())
+    );
+
 -- ── SCHEMES POLICIES ──
 DROP POLICY IF EXISTS "Authenticated read active schemes" ON public.schemes;
 CREATE POLICY "Authenticated read active schemes" ON public.schemes
@@ -387,6 +401,88 @@ CREATE POLICY "Authenticated read active schemes" ON public.schemes
 DROP POLICY IF EXISTS "Admin manage schemes" ON public.schemes;
 CREATE POLICY "Admin manage schemes" ON public.schemes
     FOR ALL TO authenticated USING (public.is_admin());
+
+-- ── SCHEME RELEASES (Guide Governance & Visibility Gate) ──
+CREATE TABLE IF NOT EXISTS public.scheme_releases (
+    id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    aspirant_id           UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    guide_id              UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    scheme_id             TEXT NOT NULL REFERENCES public.schemes(id) ON DELETE CASCADE,
+    status                TEXT NOT NULL DEFAULT 'RELEASED' CHECK (status IN ('DRAFT', 'RELEASED', 'WITHDRAWN')),
+    guide_note            TEXT,
+    guide_recommendation  TEXT,
+    eligibility_summary   TEXT,
+    released_at           TIMESTAMPTZ,
+    released_by           UUID REFERENCES public.profiles(id),
+    withdrawn_at          TIMESTAMPTZ,
+    withdrawn_by          UUID REFERENCES public.profiles(id),
+    created_at            TIMESTAMPTZ DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_aspirant_scheme_release UNIQUE (aspirant_id, scheme_id)
+);
+
+-- Indexes for scheme_releases and help_requests
+CREATE INDEX IF NOT EXISTS idx_scheme_releases_aspirant ON public.scheme_releases(aspirant_id);
+CREATE INDEX IF NOT EXISTS idx_scheme_releases_guide ON public.scheme_releases(guide_id);
+CREATE INDEX IF NOT EXISTS idx_scheme_releases_scheme ON public.scheme_releases(scheme_id);
+CREATE INDEX IF NOT EXISTS idx_scheme_releases_status ON public.scheme_releases(status);
+
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS assigned_guide_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS last_handled_at TIMESTAMPTZ;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS escalation_reason TEXT;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS resolved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS guide_response TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_help_requests_assigned_guide ON public.help_requests(assigned_guide_id);
+CREATE INDEX IF NOT EXISTS idx_help_requests_status_created ON public.help_requests(status, created_at);
+
+-- ── SCHEME RELEASES POLICIES ──
+ALTER TABLE public.scheme_releases ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Admin full access scheme_releases" ON public.scheme_releases;
+CREATE POLICY "Admin full access scheme_releases" ON public.scheme_releases
+    FOR ALL TO authenticated USING (public.is_admin());
+
+DROP POLICY IF EXISTS "Guides manage assigned aspirants scheme_releases" ON public.scheme_releases;
+CREATE POLICY "Guides manage assigned aspirants scheme_releases" ON public.scheme_releases
+    FOR ALL TO authenticated
+    USING (
+        guide_id = auth.uid()
+        AND aspirant_id IN (SELECT aspirant_id FROM public.relationships WHERE guide_id = auth.uid())
+    )
+    WITH CHECK (
+        guide_id = auth.uid()
+        AND aspirant_id IN (SELECT aspirant_id FROM public.relationships WHERE guide_id = auth.uid())
+    );
+
+DROP POLICY IF EXISTS "Aspirants read own released schemes" ON public.scheme_releases;
+CREATE POLICY "Aspirants read own released schemes" ON public.scheme_releases
+    FOR SELECT TO authenticated
+    USING (
+        aspirant_id = auth.uid()
+        AND status = 'RELEASED'
+    );
+
+-- ── 7-DAY HELP REQUEST AUTO-ESCALATION FUNCTION ──
+CREATE OR REPLACE FUNCTION public.escalate_overdue_help_requests()
+RETURNS INTEGER AS $$
+DECLARE
+    updated_count INTEGER;
+BEGIN
+    UPDATE public.help_requests
+    SET status = 'ESCALATED',
+        escalated_at = NOW(),
+        escalation_reason = 'Automatically escalated after 7 days without resolution.',
+        updated_at = NOW()
+    WHERE status IN ('OPEN', 'IN_PROGRESS')
+      AND created_at <= (NOW() - INTERVAL '7 days');
+    
+    GET DIAGNOSTICS updated_count = ROW_COUNT;
+    RETURN updated_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ── ACTIVITY LOG POLICIES ──
 DROP POLICY IF EXISTS "Admin full access activity log" ON public.activity_log;
@@ -402,3 +498,4 @@ CREATE POLICY "Users insert activity log" ON public.activity_log
 -- ─────────────────────────────────────────────────────────────
 -- Example: To promote an existing user to admin:
 -- UPDATE public.profiles SET role = 'admin' WHERE email = 'admin@fulcrum.in';
+

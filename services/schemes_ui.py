@@ -282,7 +282,7 @@ def open_delete_scheme_dialog(s: dict, admin_id: str = None):
         if st.button("Cancel", use_container_width=True):
             st.rerun()
 
-def render_fund_explorer_card(s: dict, is_admin: bool = False, admin_id: str = None, key_prefix: str = "fe"):
+def render_fund_explorer_card(s: dict, is_admin: bool = False, admin_id: str = None, key_prefix: str = "fe", show_private_intelligence: bool = True, guide_recommendation: str = None):
     sid = s.get("id") or s.get("source_id", "SCH-GEN")
     name = s.get("name", "Untitled Scheme")
     agency = s.get("agency", "Government / Syndicate")
@@ -338,8 +338,27 @@ OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone S
     # Build status badge HTML (admin only)
     status_badge = f'<span style="display:inline-block;font-size:0.68rem;font-weight:700;padding:3px 8px;border-radius:9999px;background:{status_bg};color:{status_fg};border:1px solid {status_border};">{status_tag}</span>' if is_admin else ''
 
+    guide_rec_html = ""
+    if guide_recommendation:
+        guide_rec_html = f"""<div style="background:rgba(139,92,246,0.18);border-left:4px solid #8B5CF6;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;margin-bottom:0.75rem;">
+<div style="font-size:0.76rem;font-weight:800;color:#C4B5FD;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">🎯 Guide Recommendation Note:</div>
+<div style="font-size:0.86rem;color:#F1F5F9;line-height:1.45;">{html.escape(guide_recommendation)}</div>
+</div>"""
+
+    intelligence_html = ""
+    if show_private_intelligence:
+        intelligence_html = f"""<div style="background:rgba(245,158,11,0.12);border-left:4px solid #F59E0B;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.82rem;color:#FCD34D;line-height:1.45;margin-bottom:0.65rem;">
+<div style="font-weight:800;color:#FBBF24;margin-bottom:3px;font-size:0.84rem;">INSIDER INTELLIGENCE:</div>
+<div>{agenda_text}</div>
+</div>
+<div style="background:rgba(239,68,68,0.12);border-left:4px solid #EF4444;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.82rem;color:#FCA5A5;line-height:1.45;margin-bottom:0.75rem;">
+<div style="font-weight:800;color:#F87171;margin-bottom:3px;font-size:0.84rem;">RED FLAGS:</div>
+<div>{flag_text}</div>
+</div>"""
+
     # Outer Container Card matching Playbook Fund Explorer
     st.markdown(f"""<div style="background:#11131F;border:1.5px solid #8B5CF6;border-radius:14px;padding:1.25rem;margin-bottom:0.75rem;box-shadow:0 4px 20px rgba(139,92,246,0.12);">
+{guide_rec_html}
 <div style="margin-bottom:0.6rem;">
 <div style="font-size:1.15rem;color:#FFFFFF;font-weight:800;line-height:1.3;margin:0 0 5px 0;">{html.escape(name)}</div>
 <div style="color:#94A3B8;font-size:0.84rem;margin:0;line-height:1.35;"><strong style="color:#CBD5E1;">Agency / Institution:</strong> {html.escape(agency)}</div>
@@ -354,24 +373,18 @@ OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone S
 <div style="margin-bottom:0.85rem;">{sectors_html}
 <span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;padding:3px 9px;border-radius:9999px;background:rgba(16,185,129,0.15);color:#34D399;border:1px solid #059669;margin-bottom:5px;">{html.escape(scope_str)}</span>
 </div>
-<div style="background:rgba(245,158,11,0.12);border-left:4px solid #F59E0B;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.82rem;color:#FCD34D;line-height:1.45;margin-bottom:0.65rem;">
-<div style="font-weight:800;color:#FBBF24;margin-bottom:3px;font-size:0.84rem;">INSIDER INTELLIGENCE:</div>
-<div>{agenda_text}</div>
-</div>
-<div style="background:rgba(239,68,68,0.12);border-left:4px solid #EF4444;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.82rem;color:#FCA5A5;line-height:1.45;margin-bottom:0.75rem;">
-<div style="font-weight:800;color:#F87171;margin-bottom:3px;font-size:0.84rem;">RED FLAGS:</div>
-<div>{flag_text}</div>
-</div>
+{intelligence_html}
 <div style="display:flex;justify-content:space-between;align-items:center;padding-top:0.6rem;border-top:1px solid rgba(255,255,255,0.08);font-size:0.8rem;color:#94A3B8;margin-top:0.4rem;">
 <div>{portal_link_html}</div>
 <div>Verified: <strong style="color:#E2E8F0;">{html.escape(last_verified)}</strong></div>
 </div>
 </div>""", unsafe_allow_html=True)
 
-    # Collapsible AI Pitch & Application Prompt Box
-    with st.expander("🤖 AI Pitch Prompt", expanded=False):
-        st.markdown("<p style='font-size:0.82rem; color:#64748B; margin-bottom:6px;'>Copy this prompt into Claude, ChatGPT, or your AI Copilot to generate a 1-page DPR and official application proposal:</p>", unsafe_allow_html=True)
-        st.code(app_prompt_text, language="markdown")
+    # Collapsible AI Pitch & Application Prompt Box (Guide/Admin only)
+    if show_private_intelligence:
+        with st.expander("🤖 AI Pitch Prompt", expanded=False):
+            st.markdown("<p style='font-size:0.82rem; color:#64748B; margin-bottom:6px;'>Copy this prompt into Claude, ChatGPT, or your AI Copilot to generate a 1-page DPR and official application proposal:</p>", unsafe_allow_html=True)
+            st.code(app_prompt_text, language="markdown")
 
     # If Admin, Render Clean Action Buttons (Edit Modal Dialog, Archive, Delete Modal Dialog)
     if is_admin:

@@ -16,7 +16,7 @@ from datetime import datetime, date
 from services.profiles import get_profile, update_aspirant_profile
 from services.relationships import get_aspirant_mentors
 from services.journey import get_journey_timeline, add_manual_aspirant_entry, soft_delete_event
-from services.schemes import match_schemes_for_aspirant, list_schemes
+from services.schemes import get_released_schemes_for_aspirant
 from services.schemes_ui import render_fund_explorer_card
 from services.help_requests import create_request, list_requests
 
@@ -91,12 +91,12 @@ def render_aspirant_portal(user_profile: dict):
             </div>
             """, unsafe_allow_html=True)
         with c4:
-            matched_schemes = match_schemes_for_aspirant(user_id)
+            released_schemes = get_released_schemes_for_aspirant(user_id)
             st.markdown(f"""
             <div class="metric-card" style="background: #FFFFFF; border: 1px solid #E2E8F0; border-bottom: 3px solid #ec4899; border-radius: 14px; padding: 1.2rem; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
-                <div style="font-size: 0.72rem; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;">Matched Schemes</div>
-                <div style="font-size: 1.8rem; font-weight: 800; color: #0F172A; margin-top: 0.2rem;">{len(matched_schemes)}</div>
-                <div style="font-size: 0.75rem; color: #2563EB; font-weight: 600;">Govt & Private Options</div>
+                <div style="font-size: 0.72rem; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;">Released Schemes</div>
+                <div style="font-size: 1.8rem; font-weight: 800; color: #0F172A; margin-top: 0.2rem;">{len(released_schemes)}</div>
+                <div style="font-size: 0.75rem; color: #2563EB; font-weight: 600;">Curated by Guide</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -338,96 +338,38 @@ def render_aspirant_portal(user_profile: dict):
                 st.info("No SME assigned yet. If you need specialized help in GST, FSSAI, or Patents, submit a request under 'Help'.")
 
     # ─────────────────────────────────────────────────────────────
-    # TAB 5: SCHEME MATCHES
+    # TAB 5: SCHEME MATCHES (Gatekeeper Governed)
     # ─────────────────────────────────────────────────────────────
     with tabs[4]:
-        st.markdown("### 🏦 Scheme Intelligence & Fund Explorer")
-        st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Explore funding opportunities: Review customized algorithmic matches for your enterprise, or search the complete catalogue of central, state, and private venture capital funds.</p>", unsafe_allow_html=True)
+        st.markdown("### 🏦 Recommended Funding Schemes")
+        st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Curated government schemes and venture capital opportunities reviewed and released to your venture by your dedicated Guide.</p>", unsafe_allow_html=True)
 
-        matches = match_schemes_for_aspirant(user_id)
-        sub_m1, sub_m2 = st.tabs([f"🎯 Matched For Your Venture ({len(matches)})", "🔍 Explore All Schemes & Funds"])
+        released_schemes = get_released_schemes_for_aspirant(user_id)
 
-        with sub_m1:
-            if not matches:
-                st.info("No direct matches found. Try filling out more details in 'My Profile' (sector, stage, district).")
-            else:
-                st.success(f"Identified **{len(matches)}** Potentially Eligible Schemes based on your venture profile!")
-                for s in matches:
-                    score = s["match_score"]
-                    status_label = s["recommendation_status"]
-                    score_color = "#10b981" if score >= 80 else "#f59e0b"
-
-                    # Match Reasons Banner
-                    reasons_html = "".join([f"<li style='margin-bottom:2px;'><strong style='color:#059669;'>✓</strong> {r}</li>" for r in s.get("match_reasons", [])])
-                    st.markdown(f"""
-                    <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:4px solid #10B981; border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.75rem;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <strong style="color:#166534; font-size:0.92rem;">Algorithmic Recommendation: {status_label}</strong>
-                            <span style="background:{score_color}; color:#ffffff; font-weight:800; font-size:0.85rem; padding:2px 10px; border-radius:10px;">{score}% Match</span>
-                        </div>
-                        <ul style="font-size:0.82rem; color:#14532D; margin:0.4rem 0 0 1rem; padding:0;">
-                            {reasons_html}
-                        </ul>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    render_fund_explorer_card(s, is_admin=False, key_prefix=f"asp_match_{s['id']}")
-
-        with sub_m2:
-            c_as1, c_as2, c_as3 = st.columns([2.5, 1.2, 1.2])
-            with c_as1:
-                asp_sc_search = st.text_input("🔍 Search Funds & Schemes", placeholder="e.g. IndiaAI, DLI, Accel Atoms, TANSEED, NEEDS, PMEGP...", key="asp_all_sc_search")
-            with c_as2:
-                asp_sc_cat = st.selectbox("Capital Category", ["ALL", "Central Govt", "State Govt", "Private VC / Angel", "Foreign / Global"], key="asp_sc_cat")
-            with c_as3:
-                asp_sc_stage = st.selectbox("Target Stage", ["ALL", "Ideation / R&D", "Pre-Seed / Seed", "Pre-Series A / Series A", "Growth / Debt Scaling"], key="asp_sc_stage")
-
-            all_schemes = list_schemes(search=asp_sc_search, category=asp_sc_cat, stage=asp_sc_stage, active_only=True)
-            total_asp_schemes = len(all_schemes)
-
-            # Pagination for Aspirant Fund Explorer
-            c_ab1, c_ab2 = st.columns([2.5, 1.5])
-            with c_ab1:
-                st.markdown(f"**Found {total_asp_schemes} funds & schemes matching filter.**")
-            with c_ab2:
-                asp_page_size_option = st.selectbox("Schemes per page", [15, 30, 50, f"Show All ({total_asp_schemes})"], index=1, key="asp_page_size")
-
-            if str(asp_page_size_option).startswith("Show All"):
-                asp_page_size = total_asp_schemes if total_asp_schemes > 0 else 1
-            else:
-                asp_page_size = int(asp_page_size_option)
-
-            import math
-            asp_total_pages = max(1, math.ceil(total_asp_schemes / asp_page_size)) if total_asp_schemes > 0 else 1
-
-            if "asp_scheme_page" not in st.session_state:
-                st.session_state.asp_scheme_page = 1
-            if st.session_state.asp_scheme_page > asp_total_pages:
-                st.session_state.asp_scheme_page = 1
-
-            c_ap1, c_ap2, c_ap3 = st.columns([1, 2, 1])
-            with c_ap1:
-                if st.button("◀ Previous", disabled=(st.session_state.asp_scheme_page <= 1), key="btn_asp_sc_prev", use_container_width=True):
-                    st.session_state.asp_scheme_page -= 1
-                    st.rerun()
-            with c_ap2:
-                st.markdown(f"<div style='text-align:center; padding-top:6px; font-weight:600; color:#475569;'>Page {st.session_state.asp_scheme_page} of {asp_total_pages} ({total_asp_schemes} Total Funds)</div>", unsafe_allow_html=True)
-            with c_ap3:
-                if st.button("Next ▶", disabled=(st.session_state.asp_scheme_page >= asp_total_pages), key="btn_asp_sc_next", use_container_width=True):
-                    st.session_state.asp_scheme_page += 1
-                    st.rerun()
-
-            a_start_idx = (st.session_state.asp_scheme_page - 1) * asp_page_size
-            a_end_idx = a_start_idx + asp_page_size
-            current_page_schemes = all_schemes[a_start_idx:a_end_idx]
-
+        if not released_schemes:
+            st.markdown("""
+            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px; padding:2.5rem 1.5rem; text-align:center;">
+                <h3 style="color:#0F172A; margin:0 0 0.5rem 0;">No schemes have been released to you yet.</h3>
+                <p style="color:#64748B; font-size:0.95rem; max-width:540px; margin:0 auto; line-height:1.5;">
+                    Your Guide reviews relevant funding opportunities and will release appropriate schemes to your account when ready.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.success(f"Your Guide has released **{len(released_schemes)}** curated funding opportunities for your venture!")
             cols_per_row = 3
-            for i in range(0, len(current_page_schemes), cols_per_row):
-                row_schemes = current_page_schemes[i : i + cols_per_row]
+            for i in range(0, len(released_schemes), cols_per_row):
+                row_schemes = released_schemes[i : i + cols_per_row]
                 cols = st.columns(3)
                 for j, s in enumerate(row_schemes):
                     with cols[j]:
-                        render_fund_explorer_card(s, is_admin=False, key_prefix=f"asp_cat_{s['id']}")
+                        render_fund_explorer_card(
+                            s,
+                            is_admin=False,
+                            key_prefix=f"asp_rel_{s.get('id', j)}",
+                            show_private_intelligence=False,
+                            guide_recommendation=s.get("guide_recommendation")
+                        )
 
     # ─────────────────────────────────────────────────────────────
     # TAB 6: HELP / SUPPORT
