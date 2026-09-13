@@ -189,6 +189,12 @@ def render_aspirant_portal(user_profile: dict):
                 d_dist = st.selectbox("District *", [
                     "Madurai", "Chennai", "Coimbatore", "Salem", "Trichy", "Tirunelveli", "Erode", "Vellore", "Thanjavur", "Dindigul", "Other"
                 ], index=0)
+                # If "Other" is selected, show a text input to specify the actual district/city/state
+                d_final_district = d_dist
+                if d_dist == "Other":
+                    d_other_dist = st.text_input("Specify District / City / State *", placeholder="e.g. Kanyakumari, Namakkal, Bengaluru (Karnataka)", key="profile_other_district")
+                    if d_other_dist and d_other_dist.strip():
+                        d_final_district = d_other_dist.strip()
                 d_state = st.text_input("State", value="Tamil Nadu", disabled=True)
             with col_d2:
                 d_cat = st.selectbox("Founder Category (for Subsidies)", ["General", "OBC", "SC", "ST", "Minority"], index=1)
@@ -205,12 +211,12 @@ def render_aspirant_portal(user_profile: dict):
                     user_id=user_id,
                     full_name=f_name,
                     phone=f_phone,
-                    district=d_dist,
+                    district=d_final_district,
                     state=d_state,
                     personal_data={"gender": f_gender, "dob": f_dob, "address": f_address},
                     professional_data={"education": f_edu, "skills": f_skills, "experience": f_exp, "certifications": f_certs},
                     business_data={"business_name": b_name, "business_type": b_type, "sector": b_sector, "stage": b_stage, "revenue": b_revenue, "employee_count": b_team, "description": b_desc},
-                    demographics_data={"district": d_dist, "state": d_state, "founder_category": d_cat, "is_dpiit_recognized": d_dpiit, "is_startuptn_registered": d_startuptn, "is_women_led": d_women}
+                    demographics_data={"district": d_final_district, "state": d_state, "founder_category": d_cat, "is_dpiit_recognized": d_dpiit, "is_startuptn_registered": d_startuptn, "is_women_led": d_women}
                 )
                 if updated:
                     st.success("✅ Profile updated! Scheme recommendations recalculated and Journey event logged.")

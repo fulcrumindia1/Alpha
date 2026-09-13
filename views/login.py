@@ -30,7 +30,9 @@ def render_login_page():
     }
     section[data-testid="stSidebar"],
     [data-testid="stSidebarCollapsedControl"],
-    [data-testid="stExpandSidebarButton"] {
+    [data-testid="collapsedControl"],
+    [data-testid="stExpandSidebarButton"],
+    button[kind="header"] {
         display: none !important;
         visibility: hidden !important;
     }
@@ -343,6 +345,13 @@ def render_login_page():
                     "Thanjavur", "Ranipet", "Virudhunagar", "Karur", "Other"
                 ], key="signup_district")
 
+            # If "Other" is selected, show a text input to specify the actual district/city/state
+            s_final_district = s_dist
+            if s_dist == "Other":
+                s_other_dist = st.text_input("Specify District / City / State *", placeholder="e.g. Kanyakumari, Namakkal, Bengaluru (Karnataka)", key="signup_other_district")
+                if s_other_dist and s_other_dist.strip():
+                    s_final_district = s_other_dist.strip()
+
             c_p1, c_p2 = st.columns(2)
             with c_p1:
                 s_pwd = st.text_input("Create Password", type="password", placeholder="••••••••", key="signup_pwd")
@@ -357,13 +366,15 @@ def render_login_page():
                     st.error("Passwords do not match.")
                 elif len(s_pwd) < 6:
                     st.error("Password must be at least 6 characters long.")
+                elif s_dist == "Other" and not s_other_dist.strip():
+                    st.error("Please specify your district / city / state.")
                 else:
                     profile, err = signup_aspirant(
                         email=s_email,
                         password=s_pwd,
                         full_name=s_name,
                         phone=s_phone,
-                        district=s_dist
+                        district=s_final_district
                     )
                     if profile:
                         st.success(f"Account created successfully for {profile['full_name']}! Redirecting...")

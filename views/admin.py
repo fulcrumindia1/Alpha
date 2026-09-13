@@ -519,13 +519,13 @@ def render_admin_portal(admin_profile: dict):
 
         c_p1, c_p2, c_p3 = st.columns([1, 2, 1])
         with c_p1:
-            if st.button("◀ Previous Page", disabled=(st.session_state.adm_scheme_page <= 1), use_container_width=True):
+            if st.button("◀ Previous Page", disabled=(st.session_state.adm_scheme_page <= 1), use_container_width=True, key="adm_sc_btn_prev"):
                 st.session_state.adm_scheme_page -= 1
                 st.rerun()
         with c_p2:
             st.markdown(f"<div style='text-align:center; padding-top:6px; font-weight:600; color:#475569;'>Page {st.session_state.adm_scheme_page} of {total_pages} ({total_count} Total Schemes)</div>", unsafe_allow_html=True)
         with c_p3:
-            if st.button("Next Page ▶", disabled=(st.session_state.adm_scheme_page >= total_pages), use_container_width=True):
+            if st.button("Next Page ▶", disabled=(st.session_state.adm_scheme_page >= total_pages), use_container_width=True, key="adm_sc_btn_next"):
                 st.session_state.adm_scheme_page += 1
                 st.rerun()
 

@@ -37,14 +37,8 @@ try:
 except Exception:
     pass
 
-# Force reload services if running in Streamlit hot-reload container
-import importlib
-for _m in ["services.local_db", "services.schemes", "services.auth", "services.schemes_ui", "views.admin", "views.aspirant", "views.guide", "views.sme", "views.login"]:
-    if _m in sys.modules:
-        try:
-            importlib.reload(sys.modules[_m])
-        except Exception:
-            pass
+# Note: importlib.reload loop removed — it was resetting module singletons on
+# every Streamlit rerun, corrupting rendering state and causing ghost login UI.
 
 # Page configuration
 st.set_page_config(
@@ -137,7 +131,9 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
         <style>
         section[data-testid="stSidebar"],
         [data-testid="stSidebarCollapsedControl"],
-        [data-testid="stExpandSidebarButton"] {
+        [data-testid="collapsedControl"],
+        [data-testid="stExpandSidebarButton"],
+        button[kind="header"] {
             display: none !important;
             visibility: hidden !important;
         }
