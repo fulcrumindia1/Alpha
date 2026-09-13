@@ -39,7 +39,7 @@ def render_guide_portal(user_profile: dict):
 
     assigned_aspirants = get_assigned_aspirants_for_guide(guide_id)
 
-    tabs = st.tabs(["👥 My Aspirants", "🎬 Aspirant Journey Workspace"], key="guide_portal_tabs")
+    tabs = st.tabs(["👥 My Aspirants", "🎬 Aspirant Journey Workspace"])
 
     # ─────────────────────────────────────────────────────────────
     # TAB 1: MY ASPIRANTS DIRECTORY

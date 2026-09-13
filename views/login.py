@@ -231,7 +231,7 @@ def render_login_page():
         </div>
         """, unsafe_allow_html=True)
 
-        tab_login, tab_signup = st.tabs(["Sign In", "Create Aspirant Account"], key="auth_surface_tabs")
+        tab_login, tab_signup = st.tabs(["Sign In", "Create Aspirant Account"])
 
         # ─────────────────────────────────────────────────────────────
         # TAB 1: LOGIN SURFACE

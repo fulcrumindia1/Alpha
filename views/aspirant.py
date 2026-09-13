@@ -57,7 +57,7 @@ def render_aspirant_portal(user_profile: dict):
         "🤝 My Mentors",
         "🏦 Scheme Matches",
         "💬 Help / Support"
-    ], key="asp_main_tabs")
+    ])
 
     # ─────────────────────────────────────────────────────────────
     # TAB 1: OVERVIEW
@@ -345,7 +345,7 @@ def render_aspirant_portal(user_profile: dict):
         st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Explore funding opportunities: Review customized algorithmic matches for your enterprise, or search the complete catalogue of central, state, and private venture capital funds.</p>", unsafe_allow_html=True)
 
         matches = match_schemes_for_aspirant(user_id)
-        sub_m1, sub_m2 = st.tabs([f"🎯 Matched For Your Venture ({len(matches)})", "🔍 Explore All Schemes & Funds"], key="asp_fund_explorer_tabs")
+        sub_m1, sub_m2 = st.tabs([f"🎯 Matched For Your Venture ({len(matches)})", "🔍 Explore All Schemes & Funds"])
 
         with sub_m1:
             if not matches:

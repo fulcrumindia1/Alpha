@@ -109,7 +109,7 @@ def render_admin_portal(admin_profile: dict):
         "🎯 Mentor Assignments",
         "💬 Help Requests Queue",
         "🏦 Scheme Catalogue (CRUD)"
-    ], key="adm_main_control_tabs")
+    ])
 
     # ─────────────────────────────────────────────────────────────
     # TAB 1: ASPIRANTS & JOURNEYS
