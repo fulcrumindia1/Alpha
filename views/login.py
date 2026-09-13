@@ -217,12 +217,6 @@ def render_login_page():
     </style>
     """, unsafe_allow_html=True)
 
-    # Initialize autofill states if not present
-    if "autofill_email" not in st.session_state:
-        st.session_state.autofill_email = ""
-    if "autofill_pwd" not in st.session_state:
-        st.session_state.autofill_pwd = ""
-
     # Centered Container Layout
     col_l, col_center, col_r = st.columns([1, 1.4, 1])
 
@@ -245,46 +239,13 @@ def render_login_page():
         with tab_login:
             st.markdown("<p style='font-size: 0.84rem; color: #64748B; margin-bottom: 1.25rem;'>Enter your credentials to access your verified dashboard.</p>", unsafe_allow_html=True)
             
-            # Quick 1-click Role Selector Helper
-            st.markdown("""
-            <div style="font-size: 0.75rem; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
-                ⚡ 1-Click Demo Quick Fill:
-            </div>
-            """, unsafe_allow_html=True)
-
-            q1, q2, q3, q4 = st.columns(4)
-            with q1:
-                if st.button("👑 Admin", key="fill_admin", use_container_width=True):
-                    st.session_state.autofill_email = "admin@fulcrum.in"
-                    st.session_state.autofill_pwd = "Admin@123"
-                    st.rerun()
-            with q2:
-                if st.button("🚀 Aspirant", key="fill_aspirant", use_container_width=True):
-                    st.session_state.autofill_email = "ravi.kumar@milletfoods.in"
-                    st.session_state.autofill_pwd = "Aspirant@123"
-                    st.rerun()
-            with q3:
-                if st.button("🧭 Guide", key="fill_guide", use_container_width=True):
-                    st.session_state.autofill_email = "rajendran@fulcrum.in"
-                    st.session_state.autofill_pwd = "Welcome@2026"
-                    st.rerun()
-            with q4:
-                if st.button("🔬 SME", key="fill_sme", use_container_width=True):
-                    st.session_state.autofill_email = "kumar.sme@fulcrum.in"
-                    st.session_state.autofill_pwd = "Welcome@2026"
-                    st.rerun()
-
-            st.write("")
-
             login_email = st.text_input(
                 "Email Address",
-                value=st.session_state.autofill_email,
                 placeholder="name@domain.in",
                 key="input_login_email"
             )
             login_password = st.text_input(
                 "Password",
-                value=st.session_state.autofill_pwd,
                 type="password",
                 placeholder="••••••••",
                 key="input_login_pwd"
