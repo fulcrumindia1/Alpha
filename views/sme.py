@@ -38,7 +38,7 @@ def render_sme_portal(user_profile: dict):
 
     assigned_aspirants = get_assigned_aspirants_for_sme(sme_id)
 
-    tabs = st.tabs(["📑 Assigned Cases", "🔬 Domain Journey Contributions"])
+    tabs = st.tabs(["📑 Assigned Cases", "🔬 Domain Journey Contributions"], key="sme_portal_tabs")
 
     # ─────────────────────────────────────────────────────────────
     # TAB 1: ASSIGNED CASES

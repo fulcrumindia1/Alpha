@@ -459,21 +459,23 @@ def main():
     # ─────────────────────────────────────────────────────────────────────────
     # ROUTING LOGIC (Role Portals)
     # ─────────────────────────────────────────────────────────────────────────
-    if not is_logged_in:
-        render_login_page()
-    elif role == "aspirant":
-        render_aspirant_portal(user)
-    elif role == "guide":
-        render_guide_portal(user)
-    elif role == "sme":
-        render_sme_portal(user)
-    elif role == "admin":
-        render_admin_portal(user)
-    else:
-        st.error(f"Unrecognized user role: '{role}'. Please contact support.")
-        if st.button("Reset Session"):
-            logout_user()
-            st.rerun()
+    portal_container = st.empty()
+    with portal_container.container():
+        if not is_logged_in:
+            render_login_page()
+        elif role == "aspirant":
+            render_aspirant_portal(user)
+        elif role == "guide":
+            render_guide_portal(user)
+        elif role == "sme":
+            render_sme_portal(user)
+        elif role == "admin":
+            render_admin_portal(user)
+        else:
+            st.error(f"Unrecognized user role: '{role}'. Please contact support.")
+            if st.button("Reset Session"):
+                logout_user()
+                st.rerun()
 
 if __name__ == "__main__":
     main()

@@ -231,7 +231,7 @@ def render_login_page():
         </div>
         """, unsafe_allow_html=True)
 
-        tab_login, tab_signup = st.tabs(["Sign In", "Create Aspirant Account"])
+        tab_login, tab_signup = st.tabs(["Sign In", "Create Aspirant Account"], key="auth_surface_tabs")
 
         # ─────────────────────────────────────────────────────────────
         # TAB 1: LOGIN SURFACE
@@ -256,7 +256,6 @@ def render_login_page():
                 if login_email and login_password:
                     profile, err = login_user(login_email, login_password)
                     if profile:
-                        st.success(f"Welcome back, {profile.get('full_name')}!")
                         st.rerun()
                     else:
                         st.error(err or "Invalid credentials. Please verify your email and password.")
@@ -338,7 +337,6 @@ def render_login_page():
                         district=s_final_district
                     )
                     if profile:
-                        st.success(f"Account created successfully for {profile['full_name']}! Redirecting...")
                         st.rerun()
                     else:
                         st.error(err or "Failed to create account. Email may already be in use.")
