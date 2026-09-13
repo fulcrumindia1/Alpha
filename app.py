@@ -199,6 +199,41 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
             color: #cbd5e1;
         }
 
+        /* Sidebar Logout / Action Buttons — Dark Theme Refined */
+        section[data-testid="stSidebar"] div.stButton > button {
+            background: rgba(239, 68, 68, 0.08) !important;
+            border: 1px solid rgba(239, 68, 68, 0.28) !important;
+            border-radius: 8px !important;
+            padding: 0.55rem 1rem !important;
+            font-weight: 600 !important;
+            font-size: 0.86rem !important;
+            letter-spacing: 0.3px !important;
+            transition: all 0.2s ease-in-out !important;
+            margin-top: 0.5rem !important;
+        }
+
+        section[data-testid="stSidebar"] div.stButton > button,
+        section[data-testid="stSidebar"] div.stButton > button * {
+            color: #F87171 !important;
+        }
+
+        section[data-testid="stSidebar"] div.stButton > button:hover {
+            background: rgba(239, 68, 68, 0.22) !important;
+            border-color: #EF4444 !important;
+            box-shadow: 0 4px 14px rgba(239, 68, 68, 0.25) !important;
+            transform: translateY(-1px);
+        }
+
+        section[data-testid="stSidebar"] div.stButton > button:hover,
+        section[data-testid="stSidebar"] div.stButton > button:hover * {
+            color: #FFFFFF !important;
+        }
+
+        section[data-testid="stSidebar"] div.stButton > button:active {
+            transform: translateY(0);
+            box-shadow: none !important;
+        }
+
         /* Prominent Sidebar Toggle Button when sidebar is collapsed */
         [data-testid="stSidebarCollapsedControl"],
         [data-testid="stExpandSidebarButton"] {
