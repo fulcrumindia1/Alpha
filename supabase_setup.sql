@@ -5,7 +5,9 @@
 --               and coordinate the people helping that entrepreneur.
 -- ============================================================
 
+-- ─────────────────────────────────────────────────────────────
 -- 0. EXTENSIONS
+-- ─────────────────────────────────────────────────────────────
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -79,17 +81,52 @@ CREATE TABLE IF NOT EXISTS public.journey_events (
 -- 5. HELP REQUESTS (Communication & Support Queue)
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.help_requests (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    aspirant_id     UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    subject         TEXT NOT NULL,
-    message         TEXT NOT NULL,
-    priority        TEXT DEFAULT 'MEDIUM' CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT')),
-    status          TEXT DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED')),
-    admin_response  TEXT,
-    responded_by    UUID REFERENCES public.profiles(id),
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ DEFAULT NOW()
+    id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    aspirant_id        UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    subject            TEXT NOT NULL,
+    message            TEXT NOT NULL,
+    priority           TEXT DEFAULT 'MEDIUM' CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT')),
+    status             TEXT DEFAULT 'OPEN',
+    assigned_guide_id  UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    assigned_at        TIMESTAMPTZ,
+    last_handled_at    TIMESTAMPTZ,
+    escalated_at       TIMESTAMPTZ,
+    escalation_reason  TEXT,
+    resolved_by        UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    guide_response     TEXT,
+    admin_response     TEXT,
+    responded_by       UUID REFERENCES public.profiles(id),
+    created_at         TIMESTAMPTZ DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT help_requests_status_check CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'ESCALATED'))
 );
+
+-- Idempotent column additions for existing / partially initialized databases
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS assigned_guide_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS last_handled_at TIMESTAMPTZ;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS escalation_reason TEXT;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS resolved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS guide_response TEXT;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS admin_response TEXT;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS responded_by UUID REFERENCES public.profiles(id);
+
+-- Idempotent status CHECK constraint update (ensures ESCALATED is included on existing databases)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'public.help_requests'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) LIKE '%ESCALATED%'
+    ) THEN
+        ALTER TABLE public.help_requests DROP CONSTRAINT IF EXISTS help_requests_status_check;
+        ALTER TABLE public.help_requests
+            ADD CONSTRAINT help_requests_status_check
+            CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'ESCALATED'));
+    END IF;
+END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- 6. SCHEMES (170 Authoritative Schemes Catalogue)
@@ -124,12 +161,37 @@ CREATE TABLE IF NOT EXISTS public.schemes (
     source_dataset      TEXT DEFAULT 'Founder AI Digital Playbook 2026',
     status              TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'archived')),
     is_active           BOOLEAN DEFAULT TRUE,
+    display_order       INTEGER DEFAULT 9999,
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     updated_at          TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Ensure display_order exists on partially initialized databases
+ALTER TABLE public.schemes ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 9999;
+
 -- ─────────────────────────────────────────────────────────────
--- 7. ACTIVITY LOG (Audit Trail)
+-- 7. SCHEME RELEASES (Guide Governance & Visibility Gate)
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.scheme_releases (
+    id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    aspirant_id           UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    guide_id              UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    scheme_id             TEXT NOT NULL REFERENCES public.schemes(id) ON DELETE CASCADE,
+    status                TEXT NOT NULL DEFAULT 'RELEASED' CHECK (status IN ('DRAFT', 'RELEASED', 'WITHDRAWN')),
+    guide_note            TEXT,
+    guide_recommendation  TEXT,
+    eligibility_summary   TEXT,
+    released_at           TIMESTAMPTZ,
+    released_by           UUID REFERENCES public.profiles(id),
+    withdrawn_at          TIMESTAMPTZ,
+    withdrawn_by          UUID REFERENCES public.profiles(id),
+    created_at            TIMESTAMPTZ DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_aspirant_scheme_release UNIQUE (aspirant_id, scheme_id)
+);
+
+-- ─────────────────────────────────────────────────────────────
+-- 8. ACTIVITY LOG (Audit Trail)
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.activity_log (
     id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -142,23 +204,41 @@ CREATE TABLE IF NOT EXISTS public.activity_log (
 );
 
 -- ─────────────────────────────────────────────────────────────
--- 8. INDEXES FOR HIGH-SPEED QUERIES
+-- 9. INDEXES FOR HIGH-SPEED QUERIES
 -- ─────────────────────────────────────────────────────────────
+-- Profiles
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles(role);
+
+-- Relationships
 CREATE INDEX IF NOT EXISTS idx_relationships_aspirant ON public.relationships(aspirant_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_guide ON public.relationships(guide_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_sme ON public.relationships(sme_id);
+
+-- Journeys
 CREATE INDEX IF NOT EXISTS idx_journeys_aspirant ON public.journeys(aspirant_id);
+
+-- Journey Events
 CREATE INDEX IF NOT EXISTS idx_journey_events_journey ON public.journey_events(journey_id, event_date DESC);
 CREATE INDEX IF NOT EXISTS idx_journey_events_aspirant ON public.journey_events(aspirant_id);
+
+-- Help Requests
 CREATE INDEX IF NOT EXISTS idx_help_requests_aspirant ON public.help_requests(aspirant_id);
 CREATE INDEX IF NOT EXISTS idx_help_requests_status ON public.help_requests(status);
+CREATE INDEX IF NOT EXISTS idx_help_requests_assigned_guide ON public.help_requests(assigned_guide_id);
+CREATE INDEX IF NOT EXISTS idx_help_requests_status_created ON public.help_requests(status, created_at);
+
+-- Schemes
 CREATE INDEX IF NOT EXISTS idx_schemes_active ON public.schemes(is_active);
 
--- ─────────────────────────────────────────────────────────────
--- 9. SECURITY DEFINER HELPER FUNCTIONS (Eliminates RLS Recursion)
--- ─────────────────────────────────────────────────────────────
+-- Scheme Releases
+CREATE INDEX IF NOT EXISTS idx_scheme_releases_aspirant ON public.scheme_releases(aspirant_id);
+CREATE INDEX IF NOT EXISTS idx_scheme_releases_guide ON public.scheme_releases(guide_id);
+CREATE INDEX IF NOT EXISTS idx_scheme_releases_scheme ON public.scheme_releases(scheme_id);
+CREATE INDEX IF NOT EXISTS idx_scheme_releases_status ON public.scheme_releases(status);
 
+-- ─────────────────────────────────────────────────────────────
+-- 10. SECURITY DEFINER HELPER FUNCTIONS (Eliminates RLS Recursion)
+-- ─────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN AS $$
 BEGIN
@@ -177,9 +257,8 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 -- ─────────────────────────────────────────────────────────────
--- 10. AUTOMATION: PROFILE CREATION ON SUPABASE AUTH SIGNUP
+-- 11. AUTOMATION: PROFILE CREATION ON SUPABASE AUTH SIGNUP
 -- ─────────────────────────────────────────────────────────────
-
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -230,15 +309,15 @@ CREATE TRIGGER on_auth_user_created
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- ─────────────────────────────────────────────────────────────
--- 11. ROW LEVEL SECURITY (RLS) POLICIES
+-- 12. ROW LEVEL SECURITY (RLS) POLICIES
 -- ─────────────────────────────────────────────────────────────
-
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.relationships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.journeys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.journey_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.help_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.schemes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scheme_releases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_log ENABLE ROW LEVEL SECURITY;
 
 -- ── PROFILES POLICIES ──
@@ -402,45 +481,7 @@ DROP POLICY IF EXISTS "Admin manage schemes" ON public.schemes;
 CREATE POLICY "Admin manage schemes" ON public.schemes
     FOR ALL TO authenticated USING (public.is_admin());
 
--- ── SCHEME RELEASES (Guide Governance & Visibility Gate) ──
-CREATE TABLE IF NOT EXISTS public.scheme_releases (
-    id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    aspirant_id           UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    guide_id              UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    scheme_id             TEXT NOT NULL REFERENCES public.schemes(id) ON DELETE CASCADE,
-    status                TEXT NOT NULL DEFAULT 'RELEASED' CHECK (status IN ('DRAFT', 'RELEASED', 'WITHDRAWN')),
-    guide_note            TEXT,
-    guide_recommendation  TEXT,
-    eligibility_summary   TEXT,
-    released_at           TIMESTAMPTZ,
-    released_by           UUID REFERENCES public.profiles(id),
-    withdrawn_at          TIMESTAMPTZ,
-    withdrawn_by          UUID REFERENCES public.profiles(id),
-    created_at            TIMESTAMPTZ DEFAULT NOW(),
-    updated_at            TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT uq_aspirant_scheme_release UNIQUE (aspirant_id, scheme_id)
-);
-
--- Indexes for scheme_releases and help_requests
-CREATE INDEX IF NOT EXISTS idx_scheme_releases_aspirant ON public.scheme_releases(aspirant_id);
-CREATE INDEX IF NOT EXISTS idx_scheme_releases_guide ON public.scheme_releases(guide_id);
-CREATE INDEX IF NOT EXISTS idx_scheme_releases_scheme ON public.scheme_releases(scheme_id);
-CREATE INDEX IF NOT EXISTS idx_scheme_releases_status ON public.scheme_releases(status);
-
-ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS assigned_guide_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
-ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ;
-ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS last_handled_at TIMESTAMPTZ;
-ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ;
-ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS escalation_reason TEXT;
-ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS resolved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
-ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS guide_response TEXT;
-
-CREATE INDEX IF NOT EXISTS idx_help_requests_assigned_guide ON public.help_requests(assigned_guide_id);
-CREATE INDEX IF NOT EXISTS idx_help_requests_status_created ON public.help_requests(status, created_at);
-
 -- ── SCHEME RELEASES POLICIES ──
-ALTER TABLE public.scheme_releases ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS "Admin full access scheme_releases" ON public.scheme_releases;
 CREATE POLICY "Admin full access scheme_releases" ON public.scheme_releases
     FOR ALL TO authenticated USING (public.is_admin());
@@ -465,7 +506,18 @@ CREATE POLICY "Aspirants read own released schemes" ON public.scheme_releases
         AND status = 'RELEASED'
     );
 
--- ── 7-DAY HELP REQUEST AUTO-ESCALATION FUNCTION ──
+-- ── ACTIVITY LOG POLICIES ──
+DROP POLICY IF EXISTS "Admin full access activity log" ON public.activity_log;
+CREATE POLICY "Admin full access activity log" ON public.activity_log
+    FOR ALL TO authenticated USING (public.is_admin());
+
+DROP POLICY IF EXISTS "Users insert activity log" ON public.activity_log;
+CREATE POLICY "Users insert activity log" ON public.activity_log
+    FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid() OR public.is_admin());
+
+-- ─────────────────────────────────────────────────────────────
+-- 13. 7-DAY HELP REQUEST AUTO-ESCALATION FUNCTION
+-- ─────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.escalate_overdue_help_requests()
 RETURNS INTEGER AS $$
 DECLARE
@@ -484,18 +536,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- ── ACTIVITY LOG POLICIES ──
-DROP POLICY IF EXISTS "Admin full access activity log" ON public.activity_log;
-CREATE POLICY "Admin full access activity log" ON public.activity_log
-    FOR ALL TO authenticated USING (public.is_admin());
-
-DROP POLICY IF EXISTS "Users insert activity log" ON public.activity_log;
-CREATE POLICY "Users insert activity log" ON public.activity_log
-    FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid() OR public.is_admin());
-
 -- ─────────────────────────────────────────────────────────────
--- 12. INITIAL ADMIN SEED HELPER (Execute with your admin email)
+-- 14. INITIAL ADMIN SEED HELPER (Execute with your admin email)
 -- ─────────────────────────────────────────────────────────────
 -- Example: To promote an existing user to admin:
 -- UPDATE public.profiles SET role = 'admin' WHERE email = 'admin@fulcrum.in';
-
