@@ -55,6 +55,7 @@ class LocalDatabase:
             aspirant_id TEXT UNIQUE NOT NULL REFERENCES profiles(id),
             guide_id TEXT REFERENCES profiles(id),
             sme_id TEXT REFERENCES profiles(id),
+            sme_ids TEXT DEFAULT '[]',
             assigned_by TEXT REFERENCES profiles(id),
             status TEXT DEFAULT 'active',
             notes TEXT,
@@ -189,6 +190,40 @@ class LocalDatabase:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_sr_scheme ON scheme_releases(scheme_id);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_sr_status ON scheme_releases(status);")
 
+        # 9. Notifications (In-App Universal Alert System)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            actor_id TEXT REFERENCES profiles(id),
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            notification_type TEXT NOT NULL,
+            link TEXT,
+            is_read INTEGER DEFAULT 0,
+            created_at TEXT
+        );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, created_at DESC);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_notif_unread ON notifications(user_id, is_read);")
+
+        # 10. Assignment History (Roster Transition & Audit Log)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS assignment_history (
+            id TEXT PRIMARY KEY,
+            aspirant_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            mentor_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            mentor_role TEXT NOT NULL CHECK(mentor_role IN ('guide', 'sme')),
+            assigned_by TEXT REFERENCES profiles(id),
+            action TEXT NOT NULL CHECK(action IN ('ASSIGNED', 'REPLACED', 'UNASSIGNED')),
+            previous_mentor_id TEXT REFERENCES profiles(id),
+            notes TEXT,
+            created_at TEXT
+        );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_asghist_asp ON assignment_history(aspirant_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_asghist_mentor ON assignment_history(mentor_id);")
+
         conn.commit()
 
         # Dynamic schema migration: ensure display_order exists in schemes table
@@ -200,6 +235,16 @@ class LocalDatabase:
                 conn.commit()
             except Exception as e:
                 print(f"[LocalDB] Migration notice: {e}")
+
+        # Dynamic schema migration: ensure sme_ids exists in relationships table
+        cur.execute("PRAGMA table_info(relationships)")
+        rel_cols = [r[1] for r in cur.fetchall()]
+        if "sme_ids" not in rel_cols:
+            try:
+                cur.execute("ALTER TABLE relationships ADD COLUMN sme_ids TEXT DEFAULT '[]'")
+                conn.commit()
+            except Exception as e:
+                print(f"[LocalDB] Relationships migration notice: {e}")
 
         # Dynamic schema migration: ensure guide routing & escalation columns exist in help_requests
         cur.execute("PRAGMA table_info(help_requests)")
@@ -224,6 +269,18 @@ class LocalDatabase:
             except Exception: pass
         if "guide_response" not in hr_cols:
             try: cur.execute("ALTER TABLE help_requests ADD COLUMN guide_response TEXT")
+            except Exception: pass
+        if "category" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN category TEXT DEFAULT 'GENERAL'")
+            except Exception: pass
+        if "assigned_sme_id" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN assigned_sme_id TEXT REFERENCES profiles(id)")
+            except Exception: pass
+        if "sme_response" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN sme_response TEXT")
+            except Exception: pass
+        if "target_role" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN target_role TEXT DEFAULT 'guide'")
             except Exception: pass
         conn.commit()
 
@@ -392,6 +449,17 @@ class LocalDatabase:
         conn.close()
         return profile
 
+    def update_user_password(self, user_id: str, new_password: str) -> bool:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        pw_hash = self.hash_pw(new_password)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cur.execute("UPDATE profiles SET password_hash = ?, updated_at = ? WHERE id = ?", (pw_hash, now_iso, user_id))
+        count = cur.rowcount
+        conn.commit()
+        conn.close()
+        return count > 0
+
     # ── PROFILES ──
     def get_profile_by_id(self, user_id: str) -> Optional[Dict]:
         conn = self._get_conn()
@@ -464,7 +532,17 @@ class LocalDatabase:
         cur.execute("SELECT * FROM relationships WHERE aspirant_id = ?", (aspirant_id,))
         row = cur.fetchone()
         conn.close()
-        return dict(row) if row else None
+        if not row:
+            return None
+        d = dict(row)
+        if d.get("sme_ids"):
+            try:
+                d["sme_ids"] = json.loads(d["sme_ids"])
+            except Exception:
+                d["sme_ids"] = []
+        else:
+            d["sme_ids"] = []
+        return d
 
     def assign_guide(self, aspirant_id: str, guide_id: str, admin_id: str, notes: str = ""):
         conn = self._get_conn()
@@ -483,20 +561,45 @@ class LocalDatabase:
         conn.commit()
         conn.close()
 
-    def assign_sme(self, aspirant_id: str, sme_id: str, admin_id: str, notes: str = ""):
+    def assign_sme(self, aspirant_id: str, sme_id: str, admin_id: str, notes: str = "", mode: str = "add"):
         conn = self._get_conn()
         cur = conn.cursor()
         now_iso = datetime.now(timezone.utc).isoformat()
         import uuid
+
+        cur.execute("SELECT id, sme_id, sme_ids FROM relationships WHERE aspirant_id = ?", (aspirant_id,))
+        row = cur.fetchone()
+
+        sme_ids_list = []
+        if row:
+            existing_sme_id = row["sme_id"]
+            raw_sme_ids = row["sme_ids"] if "sme_ids" in row.keys() else None
+            if raw_sme_ids:
+                try:
+                    sme_ids_list = json.loads(raw_sme_ids)
+                except Exception:
+                    sme_ids_list = []
+            if existing_sme_id and existing_sme_id not in sme_ids_list:
+                sme_ids_list.insert(0, existing_sme_id)
+
+        if mode == "add":
+            if sme_id not in sme_ids_list:
+                sme_ids_list.append(sme_id)
+        else:
+            sme_ids_list = [sme_id]
+
+        new_sme_ids_json = json.dumps(sme_ids_list)
+
         cur.execute("""
-        INSERT INTO relationships (id, aspirant_id, sme_id, assigned_by, notes, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+        INSERT INTO relationships (id, aspirant_id, sme_id, sme_ids, assigned_by, notes, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
         ON CONFLICT(aspirant_id) DO UPDATE SET
             sme_id = excluded.sme_id,
+            sme_ids = excluded.sme_ids,
             assigned_by = excluded.assigned_by,
             notes = excluded.notes,
             updated_at = excluded.updated_at
-        """, (str(uuid.uuid4()), aspirant_id, sme_id, admin_id, notes, now_iso, now_iso))
+        """, (str(uuid.uuid4()), aspirant_id, sme_id, new_sme_ids_json, admin_id, notes, now_iso, now_iso))
         conn.commit()
         conn.close()
 
@@ -527,9 +630,9 @@ class LocalDatabase:
         SELECT p.*, r.notes as assignment_notes
         FROM profiles p
         JOIN relationships r ON p.id = r.aspirant_id
-        WHERE r.sme_id = ? AND p.is_active = 1
+        WHERE (r.sme_id = ? OR r.sme_ids LIKE ?) AND p.is_active = 1
         ORDER BY r.created_at DESC
-        """, (sme_id,))
+        """, (sme_id, f'%"{sme_id}"%'))
         rows = cur.fetchall()
         conn.close()
         res = []
@@ -601,7 +704,7 @@ class LocalDatabase:
         FROM journey_events e
         LEFT JOIN profiles p ON e.actor_id = p.id
         WHERE e.aspirant_id = ? AND e.deleted_at IS NULL
-        ORDER BY e.event_date ASC, e.created_at ASC
+        ORDER BY e.event_date DESC, e.created_at DESC
         """, (aspirant_id,))
         rows = cur.fetchall()
         conn.close()
@@ -611,8 +714,35 @@ class LocalDatabase:
             d["event_data"] = json.loads(d["event_data"]) if d.get("event_data") else {}
             d["title"] = d["event_data"].get("title", d.get("event_type", "Event"))
             d["description"] = d["event_data"].get("description", "")
+            d["included_in_roadmap"] = d["event_data"].get("included_in_roadmap", True)
             res.append(d)
         return res
+
+    def toggle_journey_event_inclusion(self, event_id: str, aspirant_id: str, included: bool) -> bool:
+        """Toggles whether an event is included in the aspirant's journey roadmap."""
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT event_data FROM journey_events WHERE id = ? AND aspirant_id = ?", (event_id, aspirant_id))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return False
+        raw_data = row[0]
+        try:
+            ev_data = json.loads(raw_data) if raw_data else {}
+        except Exception:
+            ev_data = {}
+        ev_data["included_in_roadmap"] = bool(included)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cur.execute("""
+        UPDATE journey_events
+        SET event_data = ?, updated_at = ?
+        WHERE id = ? AND aspirant_id = ?
+        """, (json.dumps(ev_data), now_iso, event_id, aspirant_id))
+        conn.commit()
+        changes = conn.total_changes
+        conn.close()
+        return changes > 0
 
     def soft_delete_journey_event(self, event_id: str, deleted_by: str) -> bool:
         conn = self._get_conn()
@@ -629,17 +759,35 @@ class LocalDatabase:
         return changes > 0
 
     # ── HELP REQUESTS ──
-    def create_help_request(self, aspirant_id: str, subject: str, message: str, priority: str = "MEDIUM", assigned_guide_id: Optional[str] = None) -> Dict:
+    def create_help_request(
+        self,
+        aspirant_id: str,
+        subject: str,
+        message: str,
+        priority: str = "MEDIUM",
+        assigned_guide_id: Optional[str] = None,
+        category: str = "GENERAL",
+        assigned_sme_id: Optional[str] = None,
+        target_role: str = "guide"
+    ) -> Dict:
         conn = self._get_conn()
         cur = conn.cursor()
         import uuid
         req_id = str(uuid.uuid4())
         now_iso = datetime.now(timezone.utc).isoformat()
-        assigned_at = now_iso if assigned_guide_id else None
+        assigned_at = now_iso if (assigned_guide_id or assigned_sme_id) else None
         cur.execute("""
-        INSERT INTO help_requests (id, aspirant_id, subject, message, priority, status, assigned_guide_id, assigned_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
-        """, (req_id, aspirant_id, subject, message, priority, assigned_guide_id, assigned_at, now_iso, now_iso))
+        INSERT INTO help_requests (
+            id, aspirant_id, subject, message, priority, status,
+            assigned_guide_id, assigned_sme_id, category, target_role,
+            assigned_at, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            req_id, aspirant_id, subject, message, priority,
+            assigned_guide_id, assigned_sme_id, category, target_role,
+            assigned_at, now_iso, now_iso
+        ))
         conn.commit()
         conn.close()
         return {
@@ -650,37 +798,64 @@ class LocalDatabase:
             "priority": priority,
             "status": "OPEN",
             "assigned_guide_id": assigned_guide_id,
+            "assigned_sme_id": assigned_sme_id,
+            "category": category,
+            "target_role": target_role,
             "assigned_at": assigned_at,
             "created_at": now_iso
         }
 
-    def list_help_requests(self, aspirant_id: Optional[str] = None, guide_id: Optional[str] = None) -> List[Dict]:
+    def list_help_requests(
+        self,
+        aspirant_id: Optional[str] = None,
+        guide_id: Optional[str] = None,
+        sme_id: Optional[str] = None
+    ) -> List[Dict]:
         conn = self._get_conn()
         cur = conn.cursor()
         if aspirant_id:
             cur.execute("""
-            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email, g.full_name as guide_name
+            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email,
+                   g.full_name as guide_name, s.full_name as sme_name
             FROM help_requests h
             JOIN profiles p ON h.aspirant_id = p.id
             LEFT JOIN profiles g ON h.assigned_guide_id = g.id
+            LEFT JOIN profiles s ON h.assigned_sme_id = s.id
             WHERE h.aspirant_id = ?
             ORDER BY h.created_at DESC
             """, (aspirant_id,))
         elif guide_id:
             cur.execute("""
-            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email, g.full_name as guide_name
+            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email,
+                   g.full_name as guide_name, s.full_name as sme_name
             FROM help_requests h
             JOIN profiles p ON h.aspirant_id = p.id
             LEFT JOIN profiles g ON h.assigned_guide_id = g.id
+            LEFT JOIN profiles s ON h.assigned_sme_id = s.id
             WHERE h.assigned_guide_id = ?
+               OR h.aspirant_id IN (SELECT aspirant_id FROM relationships WHERE guide_id = ?)
             ORDER BY h.created_at DESC
-            """, (guide_id,))
+            """, (guide_id, guide_id))
+        elif sme_id:
+            cur.execute("""
+            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email,
+                   g.full_name as guide_name, s.full_name as sme_name
+            FROM help_requests h
+            JOIN profiles p ON h.aspirant_id = p.id
+            LEFT JOIN profiles g ON h.assigned_guide_id = g.id
+            LEFT JOIN profiles s ON h.assigned_sme_id = s.id
+            WHERE h.assigned_sme_id = ?
+               OR h.aspirant_id IN (SELECT aspirant_id FROM relationships WHERE sme_id = ?)
+            ORDER BY h.created_at DESC
+            """, (sme_id, sme_id))
         else:
             cur.execute("""
-            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email, g.full_name as guide_name
+            SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email,
+                   g.full_name as guide_name, s.full_name as sme_name
             FROM help_requests h
             JOIN profiles p ON h.aspirant_id = p.id
             LEFT JOIN profiles g ON h.assigned_guide_id = g.id
+            LEFT JOIN profiles s ON h.assigned_sme_id = s.id
             ORDER BY h.created_at DESC
             """)
         rows = cur.fetchall()
@@ -715,6 +890,189 @@ class LocalDatabase:
         changes = conn.total_changes
         conn.close()
         return changes > 0
+
+    def sme_respond_help_request(self, request_id: str, sme_id: str, status: str, sme_response: str) -> bool:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        resolved_by = sme_id if status == "RESOLVED" else None
+        cur.execute("""
+        UPDATE help_requests
+        SET status = ?, sme_response = ?, last_handled_at = ?, resolved_by = COALESCE(resolved_by, ?), updated_at = ?
+        WHERE id = ? AND (assigned_sme_id = ? OR assigned_sme_id IS NULL)
+        """, (status, sme_response, now_iso, resolved_by, now_iso, request_id, sme_id))
+        conn.commit()
+        changes = conn.total_changes
+        conn.close()
+        return changes > 0
+
+    # ── NOTIFICATIONS (In-App Alert System) ──
+    def create_notification(
+        self,
+        user_id: str,
+        title: str,
+        message: str,
+        notification_type: str,
+        actor_id: Optional[str] = None,
+        link: Optional[str] = None
+    ) -> Dict:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        import uuid
+        notif_id = str(uuid.uuid4())
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cur.execute("""
+        INSERT INTO notifications (id, user_id, actor_id, title, message, notification_type, link, is_read, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+        """, (notif_id, user_id, actor_id, title, message, notification_type, link, now_iso))
+        conn.commit()
+        conn.close()
+        return {
+            "id": notif_id,
+            "user_id": user_id,
+            "actor_id": actor_id,
+            "title": title,
+            "message": message,
+            "notification_type": notification_type,
+            "link": link,
+            "is_read": False,
+            "created_at": now_iso
+        }
+
+    def list_notifications(self, user_id: str, unread_only: bool = False) -> List[Dict]:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        if unread_only:
+            cur.execute("""
+            SELECT * FROM notifications
+            WHERE user_id = ? AND is_read = 0
+            ORDER BY created_at DESC
+            """, (user_id,))
+        else:
+            cur.execute("""
+            SELECT * FROM notifications
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT 50
+            """, (user_id,))
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def mark_notification_as_read(self, notification_id: str, user_id: str) -> bool:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+        UPDATE notifications
+        SET is_read = 1
+        WHERE id = ? AND user_id = ?
+        """, (notification_id, user_id))
+        conn.commit()
+        changes = conn.total_changes
+        conn.close()
+        return changes > 0
+
+    def mark_all_notifications_as_read(self, user_id: str) -> bool:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+        UPDATE notifications
+        SET is_read = 1
+        WHERE user_id = ?
+        """, (user_id,))
+        conn.commit()
+        changes = conn.total_changes
+        conn.close()
+        return changes > 0
+
+    def get_unread_notifications_count(self, user_id: str) -> int:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+        SELECT COUNT(*) FROM notifications
+        WHERE user_id = ? AND is_read = 0
+        """, (user_id,))
+        count = cur.fetchone()[0]
+        conn.close()
+        return int(count)
+
+    # ── ASSIGNMENT HISTORY ──
+    def record_assignment_history(
+        self,
+        aspirant_id: str,
+        mentor_id: str,
+        mentor_role: str,
+        assigned_by: str,
+        action: str,
+        previous_mentor_id: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> Dict:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        import uuid
+        hist_id = str(uuid.uuid4())
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cur.execute("""
+        INSERT INTO assignment_history (
+            id, aspirant_id, mentor_id, mentor_role, assigned_by,
+            action, previous_mentor_id, notes, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            hist_id, aspirant_id, mentor_id, mentor_role, assigned_by,
+            action, previous_mentor_id, notes, now_iso
+        ))
+        conn.commit()
+        conn.close()
+        return {
+            "id": hist_id,
+            "aspirant_id": aspirant_id,
+            "mentor_id": mentor_id,
+            "mentor_role": mentor_role,
+            "assigned_by": assigned_by,
+            "action": action,
+            "previous_mentor_id": previous_mentor_id,
+            "notes": notes,
+            "created_at": now_iso
+        }
+
+    def list_assignment_history(self, aspirant_id: Optional[str] = None, mentor_id: Optional[str] = None) -> List[Dict]:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        if aspirant_id:
+            cur.execute("""
+            SELECT ah.*, p.full_name as aspirant_name, m.full_name as mentor_name,
+                   prev.full_name as previous_mentor_name
+            FROM assignment_history ah
+            JOIN profiles p ON ah.aspirant_id = p.id
+            JOIN profiles m ON ah.mentor_id = m.id
+            LEFT JOIN profiles prev ON ah.previous_mentor_id = prev.id
+            WHERE ah.aspirant_id = ?
+            ORDER BY ah.created_at DESC
+            """, (aspirant_id,))
+        elif mentor_id:
+            cur.execute("""
+            SELECT ah.*, p.full_name as aspirant_name, m.full_name as mentor_name,
+                   prev.full_name as previous_mentor_name
+            FROM assignment_history ah
+            JOIN profiles p ON ah.aspirant_id = p.id
+            JOIN profiles m ON ah.mentor_id = m.id
+            LEFT JOIN profiles prev ON ah.previous_mentor_id = prev.id
+            WHERE ah.mentor_id = ? OR ah.previous_mentor_id = ?
+            ORDER BY ah.created_at DESC
+            """, (mentor_id, mentor_id))
+        else:
+            cur.execute("""
+            SELECT ah.*, p.full_name as aspirant_name, m.full_name as mentor_name,
+                   prev.full_name as previous_mentor_name
+            FROM assignment_history ah
+            JOIN profiles p ON ah.aspirant_id = p.id
+            JOIN profiles m ON ah.mentor_id = m.id
+            LEFT JOIN profiles prev ON ah.previous_mentor_id = prev.id
+            ORDER BY ah.created_at DESC
+            """)
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
 
     def escalate_overdue_help_requests(self) -> int:
         conn = self._get_conn()

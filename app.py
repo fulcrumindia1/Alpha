@@ -21,21 +21,16 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# Self-healing database check at entrypoint (guarantees zero missing-column crashes on fresh or legacy container disks)
+# Self-healing database check at entrypoint — runs ONCE per session
+# (guarantees zero missing-column crashes on fresh or legacy container disks)
 import sqlite3
-try:
-    _db_path = os.path.join(current_dir, "cluster_a.db")
-    if os.path.exists(_db_path):
-        _conn = sqlite3.connect(_db_path)
-        _cur = _conn.cursor()
-        _cur.execute("PRAGMA table_info(schemes)")
-        _cols = [c[1] for c in _cur.fetchall()]
-        if "display_order" not in _cols and len(_cols) > 0:
-            _cur.execute("ALTER TABLE schemes ADD COLUMN display_order INTEGER DEFAULT 9999")
-            _conn.commit()
-        _conn.close()
-except Exception:
-    pass
+if not st.session_state.get("_sqlite_schema_healed"):
+    try:
+        from services.local_db import get_local_db
+        get_local_db()
+    except Exception as _e:
+        print(f"[SchemaHealing] Notice: {_e}")
+    st.session_state._sqlite_schema_healed = True
 
 # Note: importlib.reload loop removed — it was resetting module singletons on
 # every Streamlit rerun, corrupting rendering state and causing ghost login UI.
@@ -49,7 +44,6 @@ st.set_page_config(
 )
 
 from services.auth import logout_user, get_supabase_client
-from services.local_db import get_local_db
 from views.login import render_login_page
 from views.aspirant import render_aspirant_portal
 from views.guide import render_guide_portal
@@ -199,7 +193,96 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
             color: #cbd5e1;
         }
 
-        /* Sidebar Logout / Action Buttons — Dark Theme Refined */
+        /* Sidebar Expander & Notification Center — Dark Theme Seamless Integration */
+        section[data-testid="stSidebar"] [data-testid="stExpander"],
+        section[data-testid="stSidebar"] details {
+            background-color: #111827 !important;
+            background: #111827 !important;
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
+            border-radius: 10px !important;
+            overflow: hidden !important;
+            margin-bottom: 0.6rem !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stExpander"] summary,
+        section[data-testid="stSidebar"] details > summary {
+            background-color: #172138 !important;
+            background: #172138 !important;
+            color: #F8FAFC !important;
+            border-radius: 9px !important;
+            border: none !important;
+            padding: 0.55rem 0.85rem !important;
+            font-weight: 700 !important;
+            cursor: pointer !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover,
+        section[data-testid="stSidebar"] details > summary:hover {
+            background-color: #1E293B !important;
+            background: #1E293B !important;
+            color: #60A5FA !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stExpander"] summary svg,
+        section[data-testid="stSidebar"] details > summary svg,
+        section[data-testid="stSidebar"] [data-testid="stExpander"] summary span,
+        section[data-testid="stSidebar"] details > summary span,
+        section[data-testid="stSidebar"] [data-testid="stExpander"] summary p,
+        section[data-testid="stSidebar"] details > summary p {
+            color: #F8FAFC !important;
+            fill: #F8FAFC !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"],
+        section[data-testid="stSidebar"] details > div:not(summary) {
+            background-color: #111827 !important;
+            background: #111827 !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+            padding: 0.75rem 0.55rem !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stExpander"] .stCaption {
+            color: #94A3B8 !important;
+        }
+
+        /* Notification Action Buttons inside Expander (Mark All / Dismiss) */
+        section[data-testid="stSidebar"] [data-testid="stExpander"] div.stButton > button,
+        section[data-testid="stSidebar"] details div.stButton > button {
+            background: rgba(37, 99, 235, 0.18) !important;
+            border: 1px solid rgba(59, 130, 246, 0.45) !important;
+            border-radius: 6px !important;
+            padding: 0.35rem 0.65rem !important;
+            font-weight: 600 !important;
+            font-size: 0.76rem !important;
+            letter-spacing: 0.2px !important;
+            color: #93C5FD !important;
+            margin: 0.2rem 0 0.4rem 0 !important;
+            width: 100% !important;
+            box-shadow: none !important;
+            transform: none !important;
+            transition: all 0.2s ease !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stExpander"] div.stButton > button *,
+        section[data-testid="stSidebar"] details div.stButton > button * {
+            color: #93C5FD !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stExpander"] div.stButton > button:hover,
+        section[data-testid="stSidebar"] details div.stButton > button:hover {
+            background: rgba(37, 99, 235, 0.35) !important;
+            border-color: #60A5FA !important;
+            color: #FFFFFF !important;
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3) !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stExpander"] div.stButton > button:hover *,
+        section[data-testid="stSidebar"] details div.stButton > button:hover * {
+            color: #FFFFFF !important;
+        }
+
+        /* Sidebar Logout Button — Dark Danger Style */
         section[data-testid="stSidebar"] div.stButton > button {
             background: rgba(239, 68, 68, 0.08) !important;
             border: 1px solid rgba(239, 68, 68, 0.28) !important;
@@ -427,7 +510,7 @@ def main():
             rb = role_badges.get(role, {"label": role.upper(), "bg": "rgba(255,255,255,0.1)", "color": "#fff"})
 
             st.markdown(f"""
-            <div style="background: rgba(17, 24, 39, 0.75); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.85rem; margin-top: 1rem; margin-bottom: 1rem;">
+            <div style="background: rgba(17, 24, 39, 0.75); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.85rem; margin-top: 1rem; margin-bottom: 0.75rem;">
                 <div style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Current User</div>
                 <div style="font-size: 0.95rem; font-weight: 700; color: #f8fafc; margin-top: 2px;">
                     {user.get('full_name', 'User')}
@@ -446,8 +529,43 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
+            # ─────────────────────────────────────────────────────────────────
+            # IN-APP NOTIFICATION CENTER (Universal & Mobile-Friendly)
+            # ─────────────────────────────────────────────────────────────────
+            from services.notifications import get_unread_count, list_notifications, mark_as_read, mark_all_as_read
+            user_id = user.get("id")
+            unread_count = get_unread_count(user_id) if user_id else 0
+
+            notif_expander_title = f"🔔 Notifications ({unread_count} New)" if unread_count > 0 else "🔔 Notifications"
+            with st.expander(notif_expander_title, expanded=(unread_count > 0)):
+                if user_id:
+                    user_notifs = list_notifications(user_id)
+                    if not user_notifs:
+                        st.caption("No notifications yet.")
+                    else:
+                        if unread_count > 0:
+                            if st.button("Mark all as read", key="btn_notif_mark_all", use_container_width=True):
+                                mark_all_as_read(user_id)
+                                st.rerun()
+                        for n in user_notifs[:6]:
+                            is_unread = not n.get("is_read")
+                            bg_style = "background: rgba(37, 99, 235, 0.22); border: 1px solid rgba(59, 130, 246, 0.45); border-left: 3.5px solid #3b82f6;" if is_unread else "background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);"
+                            title_color = "#93C5FD" if is_unread else "#E2E8F0"
+                            date_str = (n.get("created_at") or "")[:16].replace("T", " ")
+                            st.markdown(f"""
+                            <div style="{bg_style} border-radius: 7px; padding: 7px 10px; margin-bottom: 6px;">
+                                <div style="font-weight: 700; color: {title_color}; font-size: 0.8rem; line-height: 1.3;">{'🔵 ' if is_unread else ''}{n.get('title', '')}</div>
+                                <div style="color: #CBD5E1; margin-top: 3px; font-size: 0.74rem; line-height: 1.35;">{n.get('message', '')}</div>
+                                <div style="color: #94A3B8; font-size: 0.68rem; margin-top: 4px;">{date_str}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            if is_unread:
+                                if st.button("✓ Dismiss", key=f"btn_dismiss_{n['id']}", help="Mark as read", use_container_width=True):
+                                    mark_as_read(n["id"], user_id)
+                                    st.rerun()
+
             # Role-Specific Navigation Links
-            st.markdown("<div style='font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 0.5rem;'>Navigation</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-top: 0.5rem; margin-bottom: 0.5rem;'>Navigation</div>", unsafe_allow_html=True)
 
             if role == "aspirant":
                 nav_items = [
@@ -456,19 +574,19 @@ def main():
                     "🎬 My Journey",
                     "🤝 My Mentors",
                     "🏦 Scheme Matches",
-                    "💬 Help / Support"
+                    "🤝 Consult a Guide or SME"
                 ]
             elif role == "guide":
                 nav_items = [
-                    "📊 Dashboard Overview",
-                    "👥 My Assigned Aspirants",
-                    "🎬 Mentorship Workspace"
+                    "👥 My Aspirants",
+                    "💬 All Consultations Overview",
+                    "👤 My Profile"
                 ]
             elif role == "sme":
                 nav_items = [
-                    "📊 Dashboard Overview",
-                    "🎯 My Assigned Cases",
-                    "🎬 Domain Advisory Workspace"
+                    "👥 My Assigned Cases",
+                    "💬 All Consultations Overview",
+                    "👤 My Profile"
                 ]
             elif role == "admin":
                 nav_items = [
@@ -492,13 +610,67 @@ def main():
                 st.rerun()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # ROUTING LOGIC (Role Portals)
+    # ROUTING LOGIC (Role Portals) — direct render, no st.empty() wrapper
     # ─────────────────────────────────────────────────────────────────────────
-    portal_container = st.empty()
-    with portal_container.container():
-        if not is_logged_in:
-            render_login_page()
-        elif role == "aspirant":
+    if not is_logged_in:
+        render_login_page()
+    else:
+        # Check if user was provisioned with a temporary password and must set a permanent password
+        user_prof_data = user.get("profile_data") or {}
+        if isinstance(user_prof_data, str):
+            import json
+            try:
+                user_prof_data = json.loads(user_prof_data)
+            except Exception:
+                user_prof_data = {}
+
+        if user_prof_data.get("temp_password_issued") is True:
+            st.markdown("""
+            <div style="max-width:580px; margin: 2rem auto; background:#FFFFFF; border:1.5px solid #E2E8F0; border-top:4px solid #f59e0b; border-radius:14px; padding:2rem; box-shadow:0 4px 14px rgba(0,0,0,0.06);">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:1rem;">
+                    <div style="font-size:2rem;">🔐</div>
+                    <div>
+                        <h2 style="margin:0; font-size:1.35rem; color:#0F172A;">Action Required: Set Permanent Password</h2>
+                        <div style="color:#64748B; font-size:0.88rem; margin-top:2px;">Your account was provisioned with a temporary administrative password.</div>
+                    </div>
+                </div>
+                <p style="color:#334155; font-size:0.92rem; line-height:1.5;">
+                    For the security of institutional schemes, mentee dossiers, and administrative workflows, please create a new permanent password before accessing your workspace.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col_c1, col_c2, col_c3 = st.columns([1, 2, 1])
+            with col_c2:
+                with st.form("form_first_login_pw"):
+                    np1 = st.text_input("New Permanent Password *", type="password", placeholder="At least 6 characters", help="Choose a strong password")
+                    np2 = st.text_input("Confirm New Password *", type="password", placeholder="Re-type password")
+                    if st.form_submit_button("SET PERMANENT PASSWORD & ENTER", type="primary", use_container_width=True):
+                        if not np1 or len(np1) < 6:
+                            st.error("Password must be at least 6 characters long.")
+                        elif np1 != np2:
+                            st.error("Passwords do not match. Please re-enter.")
+                        else:
+                            from services.auth import complete_first_login_password_change
+                            ok, err = complete_first_login_password_change(user["id"], np1)
+                            if ok:
+                                st.success("Permanent password set successfully! Redirecting to workspace...")
+                                st.rerun()
+                            else:
+                                st.error(err or "Failed to update password.")
+            return
+
+        # Mobile-friendly banner for unread notifications
+        if user and user.get("id"):
+            try:
+                from services.notifications import get_unread_count
+                u_cnt = get_unread_count(user.get("id"))
+                if u_cnt > 0:
+                    st.info(f"🔔 You have **{u_cnt}** new notification{'s' if u_cnt > 1 else ''}! Review them in the sidebar notification center.")
+            except Exception:
+                pass
+
+        if role == "aspirant":
             render_aspirant_portal(user)
         elif role == "guide":
             render_guide_portal(user)

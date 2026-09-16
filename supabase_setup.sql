@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS public.relationships (
     CONSTRAINT uq_aspirant_relationship UNIQUE (aspirant_id)
 );
 
+ALTER TABLE public.relationships ADD COLUMN IF NOT EXISTS sme_ids JSONB DEFAULT '[]'::jsonb;
+
 -- ─────────────────────────────────────────────────────────────
 -- 3. JOURNEYS (The Entrepreneur's Movie Header)
 -- ─────────────────────────────────────────────────────────────
@@ -71,11 +73,15 @@ CREATE TABLE IF NOT EXISTS public.journey_events (
     event_type    TEXT NOT NULL,
     event_data    JSONB NOT NULL DEFAULT '{}'::jsonb,
     event_date    TIMESTAMPTZ DEFAULT NOW(),
+    included_in_roadmap BOOLEAN DEFAULT TRUE,
     deleted_at    TIMESTAMPTZ,
     deleted_by    UUID REFERENCES public.profiles(id),
     created_at    TIMESTAMPTZ DEFAULT NOW(),
     updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Idempotent column addition for roadmap autonomy
+ALTER TABLE public.journey_events ADD COLUMN IF NOT EXISTS included_in_roadmap BOOLEAN DEFAULT TRUE;
 
 -- ─────────────────────────────────────────────────────────────
 -- 5. HELP REQUESTS (Communication & Support Queue)
@@ -111,6 +117,11 @@ ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS resolved_by UUID REFER
 ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS guide_response TEXT;
 ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS admin_response TEXT;
 ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS responded_by UUID REFERENCES public.profiles(id);
+-- SME Support & Routing Columns
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'GENERAL';
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS assigned_sme_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS sme_response TEXT;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS target_role TEXT DEFAULT 'guide';
 
 -- Idempotent status CHECK constraint update (ensures ESCALATED is included on existing databases)
 DO $$
@@ -127,6 +138,36 @@ BEGIN
             CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'ESCALATED'));
     END IF;
 END $$;
+
+-- ─────────────────────────────────────────────────────────────
+-- 5B. NOTIFICATIONS (In-App Universal Alert System)
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id            UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    actor_id           UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    title              TEXT NOT NULL,
+    message            TEXT NOT NULL,
+    notification_type  TEXT NOT NULL,
+    link               TEXT,
+    is_read            BOOLEAN DEFAULT FALSE,
+    created_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─────────────────────────────────────────────────────────────
+-- 5C. ASSIGNMENT HISTORY (Roster Transition & Audit Log)
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.assignment_history (
+    id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    aspirant_id        UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    mentor_id          UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    mentor_role        TEXT NOT NULL CHECK (mentor_role IN ('guide', 'sme')),
+    assigned_by        UUID REFERENCES public.profiles(id),
+    action             TEXT NOT NULL CHECK (action IN ('ASSIGNED', 'REPLACED', 'UNASSIGNED')),
+    previous_mentor_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    notes              TEXT,
+    created_at         TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- ─────────────────────────────────────────────────────────────
 -- 6. SCHEMES (170 Authoritative Schemes Catalogue)
@@ -264,6 +305,8 @@ RETURNS TRIGGER AS $$
 DECLARE
     user_full_name TEXT;
     user_role TEXT;
+    user_phone TEXT;
+    user_district TEXT;
 BEGIN
     -- Extract full name from raw_user_meta_data if present, else fallback to email prefix
     user_full_name := COALESCE(
@@ -275,12 +318,40 @@ BEGIN
         NEW.raw_user_meta_data->>'role',
         'aspirant'
     );
+    -- Extract phone and district
+    user_phone := NEW.raw_user_meta_data->>'phone';
+    user_district := COALESCE(NEW.raw_user_meta_data->>'district', 'Tamil Nadu');
 
-    INSERT INTO public.profiles (id, email, full_name, role)
-    VALUES (NEW.id, NEW.email, user_full_name, user_role)
+    INSERT INTO public.profiles (id, email, full_name, role, phone, district, profile_data)
+    VALUES (
+        NEW.id,
+        NEW.email,
+        user_full_name,
+        user_role,
+        user_phone,
+        user_district,
+        jsonb_build_object(
+            'personal', jsonb_build_object(
+                'full_name', user_full_name,
+                'email', NEW.email,
+                'phone', user_phone,
+                'district', user_district
+            ),
+            'business', jsonb_build_object(
+                'business_name', user_full_name || '''s Enterprise',
+                'stage', 'idea'
+            ),
+            'demographics', jsonb_build_object(
+                'district', user_district,
+                'state', 'Tamil Nadu'
+            )
+        )
+    )
     ON CONFLICT (id) DO UPDATE
     SET email = EXCLUDED.email,
-        full_name = COALESCE(public.profiles.full_name, EXCLUDED.full_name);
+        full_name = COALESCE(public.profiles.full_name, EXCLUDED.full_name),
+        phone = COALESCE(public.profiles.phone, EXCLUDED.phone),
+        district = COALESCE(public.profiles.district, EXCLUDED.district);
 
     -- Auto-initialize Journey for Aspirants
     IF user_role = 'aspirant' THEN
@@ -441,10 +512,6 @@ CREATE POLICY "SME insert journey events" ON public.journey_events
         aspirant_id IN (SELECT aspirant_id FROM public.relationships WHERE sme_id = auth.uid())
     );
 
-DROP POLICY IF EXISTS "SME manage own journey events" ON public.journey_events;
-CREATE POLICY "SME manage own journey events" ON public.journey_events
-    FOR UPDATE TO authenticated USING (actor_id = auth.uid() AND actor_role = 'sme');
-
 -- ── HELP REQUESTS POLICIES ──
 DROP POLICY IF EXISTS "Admin full access help requests" ON public.help_requests;
 CREATE POLICY "Admin full access help requests" ON public.help_requests
@@ -472,14 +539,52 @@ CREATE POLICY "Guides update assigned help requests" ON public.help_requests
         aspirant_id IN (SELECT aspirant_id FROM public.relationships WHERE guide_id = auth.uid())
     );
 
+DROP POLICY IF EXISTS "SMEs view assigned help requests" ON public.help_requests;
+CREATE POLICY "SMEs view assigned help requests" ON public.help_requests
+    FOR SELECT TO authenticated USING (
+        assigned_sme_id = auth.uid() OR
+        aspirant_id IN (SELECT aspirant_id FROM public.relationships WHERE sme_id = auth.uid())
+    );
+
+DROP POLICY IF EXISTS "SMEs update assigned help requests" ON public.help_requests;
+CREATE POLICY "SMEs update assigned help requests" ON public.help_requests
+    FOR UPDATE TO authenticated USING (
+        assigned_sme_id = auth.uid() OR
+        aspirant_id IN (SELECT aspirant_id FROM public.relationships WHERE sme_id = auth.uid())
+    );
+
 -- ── SCHEMES POLICIES ──
+-- NOTE: Aspirants MUST NOT have direct SELECT on schemes table.
+-- They access schemes ONLY through scheme_releases (Guide-gated governance).
 DROP POLICY IF EXISTS "Authenticated read active schemes" ON public.schemes;
-CREATE POLICY "Authenticated read active schemes" ON public.schemes
-    FOR SELECT TO authenticated USING (is_active = TRUE OR public.is_admin());
+DROP POLICY IF EXISTS "Public read active schemes" ON public.schemes;
+
+-- Admin: full CRUD (already exists via "Admin manage schemes" below, but explicit read too)
+DROP POLICY IF EXISTS "Admin read all schemes" ON public.schemes;
+CREATE POLICY "Admin read all schemes" ON public.schemes
+    FOR SELECT TO authenticated USING (public.is_admin());
+
+-- Guide: can read ALL active schemes (full catalogue for evaluation/gatekeeper role)
+DROP POLICY IF EXISTS "Guide read active schemes" ON public.schemes;
+CREATE POLICY "Guide read active schemes" ON public.schemes
+    FOR SELECT TO authenticated
+    USING (is_active = TRUE AND public.current_role() = 'guide');
 
 DROP POLICY IF EXISTS "Admin manage schemes" ON public.schemes;
 CREATE POLICY "Admin manage schemes" ON public.schemes
     FOR ALL TO authenticated USING (public.is_admin());
+
+-- Sanitized view: excludes hidden_agenda, red_flags, application_prompt
+-- Available for any future aspirant-facing direct reads if needed
+CREATE OR REPLACE VIEW public.schemes_public AS
+SELECT
+    id, source_id, name, agency, ministry, scheme_type,
+    category_type, funding_type, stage, amount, brief, description,
+    sectors, eligibility, terms, process, timeline, success_rate,
+    contact, state_scope, geography, application_url, last_verified,
+    source_dataset, status, is_active, display_order, created_at, updated_at
+FROM public.schemes
+WHERE is_active = TRUE;
 
 -- ── SCHEME RELEASES POLICIES ──
 DROP POLICY IF EXISTS "Admin full access scheme_releases" ON public.scheme_releases;
@@ -514,6 +619,52 @@ CREATE POLICY "Admin full access activity log" ON public.activity_log
 DROP POLICY IF EXISTS "Users insert activity log" ON public.activity_log;
 CREATE POLICY "Users insert activity log" ON public.activity_log
     FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid() OR public.is_admin());
+
+-- ── NOTIFICATIONS POLICIES ──
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Admin full access notifications" ON public.notifications;
+CREATE POLICY "Admin full access notifications" ON public.notifications
+    FOR ALL TO authenticated USING (public.is_admin());
+
+DROP POLICY IF EXISTS "Users read own notifications" ON public.notifications;
+CREATE POLICY "Users read own notifications" ON public.notifications
+    FOR SELECT TO authenticated USING (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Users update own notifications" ON public.notifications;
+CREATE POLICY "Users update own notifications" ON public.notifications
+    FOR UPDATE TO authenticated USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Authenticated insert notifications" ON public.notifications;
+DROP POLICY IF EXISTS "Restricted insert notifications" ON public.notifications;
+CREATE POLICY "Restricted insert notifications" ON public.notifications
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        public.is_admin() OR
+        (actor_id = auth.uid() AND (
+            user_id = auth.uid() OR
+            user_id IN (SELECT guide_id FROM public.relationships WHERE aspirant_id = auth.uid()) OR
+            user_id IN (SELECT sme_id FROM public.relationships WHERE aspirant_id = auth.uid()) OR
+            user_id IN (SELECT aspirant_id FROM public.relationships WHERE guide_id = auth.uid() OR sme_id = auth.uid())
+        ))
+    );
+
+-- ── ASSIGNMENT HISTORY POLICIES ──
+ALTER TABLE public.assignment_history ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Admin full access assignment_history" ON public.assignment_history;
+CREATE POLICY "Admin full access assignment_history" ON public.assignment_history
+    FOR ALL TO authenticated USING (public.is_admin());
+
+DROP POLICY IF EXISTS "Mentors read related assignment_history" ON public.assignment_history;
+CREATE POLICY "Mentors read related assignment_history" ON public.assignment_history
+    FOR SELECT TO authenticated USING (
+        mentor_id = auth.uid() OR previous_mentor_id = auth.uid()
+    );
+
+DROP POLICY IF EXISTS "Aspirants read own assignment_history" ON public.assignment_history;
+CREATE POLICY "Aspirants read own assignment_history" ON public.assignment_history
+    FOR SELECT TO authenticated USING (aspirant_id = auth.uid());
 
 -- ─────────────────────────────────────────────────────────────
 -- 13. 7-DAY HELP REQUEST AUTO-ESCALATION FUNCTION

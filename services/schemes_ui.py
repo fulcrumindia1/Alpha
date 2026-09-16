@@ -20,13 +20,36 @@ import streamlit as st
 import json
 import html
 from services.schemes import upsert_scheme, toggle_archive_scheme, delete_scheme
+from services.constants import (
+    MASTER_SECTORS,
+    MASTER_STAGES,
+    MASTER_FUNDING_TYPES,
+    MASTER_CATEGORY_TYPES,
+    MASTER_GEOGRAPHIC_SCOPES,
+    resolve_field_choice
+)
+
+def _format_list_item(item: str) -> str:
+    s = str(item).strip()
+    if s.startswith(">>"):
+        content = html.escape(s[2:].strip())
+        return f'<div style="margin-bottom:4px;"><span style="color:#D97706; font-weight:900; font-size:0.95rem;">&#9654;</span> <span style="font-weight:600;">{content}</span></div>'
+    elif s.startswith("!!"):
+        content = html.escape(s[2:].strip())
+        return f'<div style="margin-bottom:4px;"><span style="color:#DC2626; font-weight:900; font-size:0.95rem;">&#9888;</span> <span style="font-weight:600;">{content}</span></div>'
+    elif s.startswith("•"):
+        content = html.escape(s[1:].strip())
+        return f'<div style="margin-bottom:4px;"><span style="color:#64748B; font-weight:800;">&bull;</span> <span style="font-weight:600;">{content}</span></div>'
+    else:
+        content = html.escape(s)
+        return f'<div style="margin-bottom:4px;"><span style="color:#64748B; font-weight:800;">&bull;</span> <span style="font-weight:600;">{content}</span></div>'
 
 def parse_list_field(val, default="None"):
     if not val:
-        return default
+        return _format_list_item(default)
     if isinstance(val, list):
         items = [str(x) for x in val if x]
-        return "<br>".join(f"• {html.escape(item)}" if not item.startswith((">>", "!!", "•")) else html.escape(item) for item in items)
+        return "".join(_format_list_item(item) for item in items)
     if isinstance(val, str):
         val_s = val.strip()
         if val_s.startswith("[") and val_s.endswith("]"):
@@ -34,14 +57,14 @@ def parse_list_field(val, default="None"):
                 parsed = json.loads(val_s)
                 if isinstance(parsed, list):
                     items = [str(x) for x in parsed if x]
-                    return "<br>".join(f"• {html.escape(item)}" if not item.startswith((">>", "!!", "•")) else html.escape(item) for item in items)
+                    return "".join(_format_list_item(item) for item in items)
             except Exception:
                 pass
         lines = [l.strip() for l in val_s.split("\n") if l.strip()]
         if len(lines) > 1:
-            return "<br>".join(f"• {html.escape(line)}" if not line.startswith((">>", "!!", "•")) else html.escape(line) for line in lines)
-        return html.escape(val_s)
-    return html.escape(str(val))
+            return "".join(_format_list_item(line) for line in lines)
+        return _format_list_item(val_s)
+    return _format_list_item(str(val))
 
 def parse_sectors_list(val):
     if not val:
@@ -137,31 +160,42 @@ def open_edit_scheme_dialog(s: dict, admin_id: str = None):
             with c1:
                 ed_agency = st.text_input("Agency / Ministry / Firm *", value=agency)
                 ed_amount = st.text_input("Funding Amount & Nature *", value=s.get("amount", ""))
-                ed_type = st.text_input("Funding / Capital Type (e.g. Grant, Equity, Debt, Subsidy)", value=s.get("funding_type") or s.get("scheme_type") or "Grant")
+                cur_ftype = s.get("funding_type") or s.get("scheme_type") or "Grant"
+                ftype_idx, ftype_custom = resolve_field_choice(cur_ftype, MASTER_FUNDING_TYPES, "Other / Blended Capital (Specify)")
+                ed_type_sel = st.selectbox("Funding / Capital Type", MASTER_FUNDING_TYPES, index=ftype_idx, key=f"{sid}_sel_ftype")
+                ed_type = ed_type_sel
+                if ed_type_sel == "Other / Blended Capital (Specify)":
+                    ed_type_custom = st.text_input("Specify Capital Type *", value=ftype_custom, placeholder="e.g. Revenue Share, SAFE", key=f"{sid}_custom_ftype")
+                    if ed_type_custom and ed_type_custom.strip():
+                        ed_type = ed_type_custom.strip()
 
             with c2:
-                cat_options = ["Central Govt", "State Govt", "Private VC / Angel", "Foreign / Global"]
-                current_cat = s.get("category_type") or "Central Govt"
-                cat_idx = 0
-                for idx, opt in enumerate(cat_options):
-                    if opt.lower() in current_cat.lower():
-                        cat_idx = idx
-                        break
-                ed_cat = st.selectbox("Category Type", cat_options, index=cat_idx)
+                cur_cat = s.get("category_type") or "Central Govt"
+                cat_idx, cat_custom = resolve_field_choice(cur_cat, MASTER_CATEGORY_TYPES, "Other / Consortium (Specify)")
+                ed_cat_sel = st.selectbox("Category Type", MASTER_CATEGORY_TYPES, index=cat_idx, key=f"{sid}_sel_cat")
+                ed_cat = ed_cat_sel
+                if ed_cat_sel == "Other / Consortium (Specify)":
+                    ed_cat_custom = st.text_input("Specify Category *", value=cat_custom, placeholder="e.g. Bilateral Consortium", key=f"{sid}_custom_cat")
+                    if ed_cat_custom and ed_cat_custom.strip():
+                        ed_cat = ed_cat_custom.strip()
 
-                stage_options = ["Ideation / R&D", "Pre-Seed / Seed", "Pre-Series A / Series A", "Growth / Debt Scaling"]
-                current_stage = s.get("stage") or "All Stages"
-                stage_idx = 1
-                for idx, opt in enumerate(stage_options):
-                    if opt.lower() in current_stage.lower():
-                        stage_idx = idx
-                        break
-                ed_stage = st.selectbox("Target Startup Stage", stage_options, index=stage_idx)
+                cur_stg = s.get("stage") or "Pre-Seed / Seed"
+                stg_idx, stg_custom = resolve_field_choice(cur_stg, MASTER_STAGES, "Other / Multi-Stage (Specify)", default_index=1)
+                ed_stage_sel = st.selectbox("Target Startup Stage", MASTER_STAGES, index=stg_idx, key=f"{sid}_sel_stg")
+                ed_stage = ed_stage_sel
+                if ed_stage_sel == "Other / Multi-Stage (Specify)":
+                    ed_stg_custom = st.text_input("Specify Development Stage *", value=stg_custom, placeholder="e.g. Commercialization Phase", key=f"{sid}_custom_stg")
+                    if ed_stg_custom and ed_stg_custom.strip():
+                        ed_stage = ed_stg_custom.strip()
 
-                scope_options = ["All India", "Tamil Nadu", "Regional / Global"]
-                current_scope = s.get("state_scope") or s.get("geography") or "All India"
-                scope_idx = 1 if "Tamil" in current_scope else 0
-                ed_scope = st.selectbox("Geographic Scope", scope_options, index=scope_idx)
+                cur_scope = s.get("state_scope") or s.get("geography") or "All India"
+                scope_idx, scope_custom = resolve_field_choice(cur_scope, MASTER_GEOGRAPHIC_SCOPES, "Other / Specific Region (Specify)")
+                ed_scope_sel = st.selectbox("Geographic Scope", MASTER_GEOGRAPHIC_SCOPES, index=scope_idx, key=f"{sid}_sel_scope")
+                ed_scope = ed_scope_sel
+                if ed_scope_sel == "Other / Specific Region (Specify)":
+                    ed_scope_custom = st.text_input("Specify Geographic Region *", value=scope_custom, placeholder="e.g. South India / Tier 2 Cities", key=f"{sid}_custom_scope")
+                    if ed_scope_custom and ed_scope_custom.strip():
+                        ed_scope = ed_scope_custom.strip()
 
             c3, c4 = st.columns(2)
             with c3:
@@ -170,8 +204,45 @@ def open_edit_scheme_dialog(s: dict, admin_id: str = None):
                 ed_verified = st.text_input("Last Verified Note", value=s.get("last_verified") or "August 2026")
 
         with tab2:
-            sec_str = to_comma_str(s.get("sectors")) or "General, AI, DeepTech"
-            ed_sectors = st.text_input("Eligible Sectors (comma-separated)", value=sec_str, help="e.g. Food Processing, DeepTech, Agritech, SaaS, HealthTech")
+            raw_secs_val = s.get("sectors")
+            raw_secs = []
+            if isinstance(raw_secs_val, list):
+                raw_secs = [str(x).strip() for x in raw_secs_val if str(x).strip()]
+            elif isinstance(raw_secs_val, str):
+                raw_s = raw_secs_val.strip()
+                if raw_s.startswith("[") and raw_s.endswith("]"):
+                    try:
+                        parsed = json.loads(raw_s)
+                        if isinstance(parsed, list):
+                            raw_secs = [str(x).strip() for x in parsed if str(x).strip()]
+                    except Exception:
+                        pass
+                if not raw_secs:
+                    raw_secs = [x.strip() for x in raw_s.split(",") if x.strip()]
+
+            standard_secs = []
+            custom_secs = []
+            for sec in raw_secs:
+                m_match = next((ms for ms in MASTER_SECTORS if ms != "Other / Not Listed (Specify)" and ms.lower() == sec.lower()), None)
+                if m_match:
+                    if m_match not in standard_secs:
+                        standard_secs.append(m_match)
+                else:
+                    if sec.strip():
+                        custom_secs.append(sec.strip())
+
+            default_sel = standard_secs.copy()
+            if custom_secs:
+                default_sel.append("Other / Not Listed (Specify)")
+            if not default_sel:
+                default_sel = ["Cross-Sector / All Sectors"]
+
+            ed_sectors_sel = st.multiselect("Eligible Sectors *", MASTER_SECTORS, default=default_sel, key=f"{sid}_sel_sectors")
+            ed_custom_sec = ""
+            if "Other / Not Listed (Specify)" in ed_sectors_sel:
+                default_custom_sec_str = ", ".join(custom_secs)
+                ed_custom_sec = st.text_input("Specify Custom Sectors (comma-separated) *", value=default_custom_sec_str, placeholder="e.g. SpaceTech, Marine Biotechnology", key=f"{sid}_custom_sec")
+
             ed_brief = st.text_input("Executive One-Line Summary Brief", value=s.get("brief") or s.get("description", "")[:200])
             ed_desc = st.text_area("Full Scheme Scope & Operational Details", value=s.get("description", ""), height=150)
 
@@ -227,7 +298,12 @@ OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone S
             if not ed_name.strip() or not ed_agency.strip():
                 st.error("Scheme Name and Agency are required.")
             else:
-                new_sectors = [x.strip() for x in ed_sectors.split(",") if x.strip()]
+                final_sectors = [x for x in ed_sectors_sel if x != "Other / Not Listed (Specify)"]
+                if ed_custom_sec and ed_custom_sec.strip():
+                    final_sectors.extend([x.strip() for x in ed_custom_sec.split(",") if x.strip()])
+                if not final_sectors:
+                    final_sectors = ["Cross-Sector / All Sectors"]
+
                 new_elig = [x.strip() for x in ed_elig.split("\n") if x.strip()]
                 new_terms = [x.strip() for x in ed_terms.split("\n") if x.strip()]
                 new_agenda = [x.strip() for x in ed_agenda.split("\n") if x.strip()]
@@ -249,7 +325,7 @@ OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone S
                     "last_verified": ed_verified.strip(),
                     "brief": ed_brief.strip(),
                     "description": ed_desc.strip(),
-                    "sectors": new_sectors,
+                    "sectors": final_sectors,
                     "eligibility": new_elig,
                     "terms": new_terms,
                     "hidden_agenda": new_agenda,
@@ -347,13 +423,13 @@ OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone S
 
     intelligence_html = ""
     if show_private_intelligence:
-        intelligence_html = f"""<div style="background:rgba(245,158,11,0.12);border-left:4px solid #F59E0B;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.82rem;color:#FCD34D;line-height:1.45;margin-bottom:0.65rem;">
-<div style="font-weight:800;color:#FBBF24;margin-bottom:3px;font-size:0.84rem;">INSIDER INTELLIGENCE:</div>
-<div>{agenda_text}</div>
+        intelligence_html = f"""<div style="background:rgba(245,158,11,0.18);border-left:4px solid #F59E0B;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.84rem;color:#FEF3C7;line-height:1.45;margin-bottom:0.65rem;">
+<div style="font-weight:800;color:#FBBF24;margin-bottom:3px;font-size:0.84rem;letter-spacing:0.3px;">🤫 INSIDER INTELLIGENCE:</div>
+<div style="color:#FEF3C7;">{agenda_text}</div>
 </div>
-<div style="background:rgba(239,68,68,0.12);border-left:4px solid #EF4444;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.82rem;color:#FCA5A5;line-height:1.45;margin-bottom:0.75rem;">
-<div style="font-weight:800;color:#F87171;margin-bottom:3px;font-size:0.84rem;">RED FLAGS:</div>
-<div>{flag_text}</div>
+<div style="background:rgba(239,68,68,0.18);border-left:4px solid #EF4444;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.84rem;color:#FEE2E2;line-height:1.45;margin-bottom:0.75rem;">
+<div style="font-weight:800;color:#F87171;margin-bottom:3px;font-size:0.84rem;letter-spacing:0.3px;">⚠️ RED FLAGS:</div>
+<div style="color:#FEE2E2;">{flag_text}</div>
 </div>"""
 
     # Outer Container Card matching Playbook Fund Explorer

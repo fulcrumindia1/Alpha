@@ -15,19 +15,26 @@ The central operations desk:
 import streamlit as st
 import html
 from datetime import datetime, timezone
-from services.auth import admin_create_mentor
-from services.local_db import get_local_db
-from services.profiles import get_profile
+from services.auth import admin_create_mentor, backfill_auth_users, get_data_backend
+from services.profiles import get_profile, list_profiles_by_role
 from services.relationships import get_aspirant_mentors, assign_guide, assign_sme
-from services.journey import get_journey_timeline, soft_delete_event, log_meaningful_event
+from services.journey import get_journey_timeline, soft_delete_event, log_meaningful_event, add_admin_journey_entry, get_standard_role_label
 from services.schemes import list_schemes, get_scheme, upsert_scheme, toggle_archive_scheme, delete_scheme, match_schemes_for_aspirant
+from services.pdf_generator import generate_aspirant_dossier_pdf
 from services.schemes_ui import render_fund_explorer_card
 from services.help_requests import list_requests, resolve_request, check_and_escalate_overdue_requests
+from services.constants import (
+    MASTER_SECTORS,
+    MASTER_STAGES,
+    MASTER_DISTRICTS_TN,
+    MASTER_FUNDING_TYPES,
+    MASTER_CATEGORY_TYPES,
+    MASTER_GEOGRAPHIC_SCOPES
+)
 
 def render_admin_portal(admin_profile: dict):
     admin_id = admin_profile["id"]
     admin_name = admin_profile.get("full_name", "Administrator")
-    local_db = get_local_db()
 
     # Automatically check for and escalate overdue tickets (>7 days)
     try:
@@ -52,10 +59,28 @@ def render_admin_portal(admin_profile: dict):
     </div>
     """, unsafe_allow_html=True)
 
+    # In Supabase mode, allow Admin to run safe backfill/sync
+    if get_data_backend() == "supabase":
+        with st.expander("⚡ Supabase Auth Synchronization & User Backfill", expanded=False):
+            st.markdown("<p style='font-size:0.85rem; color:#64748B;'>Sync registered Supabase Auth users to application profiles, journeys, and mentor relationship records.</p>", unsafe_allow_html=True)
+            col_bf1, col_bf2 = st.columns([2, 1])
+            with col_bf1:
+                admin_email_to_promote = st.text_input("Designated Super Admin Email", value="admin@fulcrum.in", key="admin_sync_email")
+            with col_bf2:
+                st.write("")
+                st.write("")
+                if st.button("🔄 Sync Auth Users", key="btn_admin_sync_auth"):
+                    bf_res = backfill_auth_users(default_admin_email=admin_email_to_promote)
+                    if "error" in bf_res:
+                        st.error(bf_res["error"])
+                    else:
+                        st.success(f"Sync complete: {bf_res.get('backfilled', 0)} backfilled, {bf_res.get('already_existing', 0)} verified (Total Auth Users: {bf_res.get('total_auth_users', 0)}).")
+                        st.rerun()
+
     # Fetch stats
-    aspirants = local_db.list_profiles_by_role("aspirant")
-    guides = local_db.list_profiles_by_role("guide")
-    smes = local_db.list_profiles_by_role("sme")
+    aspirants = list_profiles_by_role("aspirant")
+    guides = list_profiles_by_role("guide")
+    smes = list_profiles_by_role("sme")
     all_schemes = list_schemes(active_only=False)
     help_tickets = list_requests()
     open_tickets = [t for t in help_tickets if t.get("status") in ("OPEN", "IN_PROGRESS")]
@@ -129,9 +154,29 @@ def render_admin_portal(admin_profile: dict):
             with col_sel1:
                 asp_options = {a["id"]: f"{a['full_name']} — {a.get('profile_data',{}).get('business',{}).get('business_name','Enterprise')} ({a.get('district','TN')})" for a in aspirants}
                 selected_asp_id = st.selectbox("Select Entrepreneur to inspect", list(asp_options.keys()), format_func=lambda x: asp_options[x], key="adm_sel_asp")
+            with col_sel2:
+                st.markdown("<div style='height: 1.75rem;'></div>", unsafe_allow_html=True)
 
             curr_asp = get_profile(selected_asp_id)
             if curr_asp:
+                with col_sel2:
+                    try:
+                        if st.session_state.get("cached_dossier_asp_id") != selected_asp_id or "cached_dossier_pdf" not in st.session_state:
+                            with st.spinner("Compiling Dossier PDF..."):
+                                st.session_state["cached_dossier_pdf"] = generate_aspirant_dossier_pdf(selected_asp_id)
+                                st.session_state["cached_dossier_asp_id"] = selected_asp_id
+                        pdf_data = st.session_state["cached_dossier_pdf"]
+                        clean_name = "".join(c for c in curr_asp.get("full_name", "Aspirant") if c.isalnum() or c == "_")
+                        st.download_button(
+                            label="📥 Download Founder Dossier (PDF)",
+                            data=pdf_data,
+                            file_name=f"FULCRUM_Dossier_{clean_name}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key=f"dl_pdf_dossier_{selected_asp_id}"
+                        )
+                    except Exception as e:
+                        st.error(f"PDF generation error: {e}")
                 mentors_info = get_aspirant_mentors(selected_asp_id)
                 g_assigned = mentors_info.get("guide")
                 s_assigned = mentors_info.get("sme")
@@ -154,13 +199,54 @@ def render_admin_portal(admin_profile: dict):
                 """, unsafe_allow_html=True)
 
                 st.markdown("#### Complete Chronological Journey")
+
+                with st.expander(f"➕ Log Official Administrative Directive to {curr_asp['full_name']}'s Journey", expanded=False):
+                    with st.form(f"form_admin_add_journey_{selected_asp_id}"):
+                        c_ad1, c_ad2 = st.columns(2)
+                        with c_ad1:
+                            ad_title = st.text_input("Title / Directive Milestone *", placeholder="e.g. Subsidy Sanction Review & Allocation Approval")
+                            ad_cat = st.selectbox("Directive Category", ["Official Sanction", "Administrative Review", "Compliance Clearance", "Grant Allocation", "Program Onboarding", "Other / Custom Directive"])
+                        with c_ad2:
+                            ad_date = st.date_input("Directive Date", value=datetime.now(timezone.utc).date())
+                        ad_desc = st.text_area("Administrative Notes / Directive Details *", placeholder="Formally reviewed founder's DPR and cap table. Cleared for departmental tranche disbursement.")
+                        if st.form_submit_button("RECORD ADMINISTRATIVE DIRECTIVE", type="primary"):
+                            if ad_title and ad_desc:
+                                ev, err = add_admin_journey_entry(
+                                    aspirant_id=selected_asp_id,
+                                    admin_id=admin_id,
+                                    title=ad_title,
+                                    description=ad_desc,
+                                    category=ad_cat,
+                                    event_date=ad_date.isoformat()
+                                )
+                                if ev:
+                                    st.session_state.pop("cached_dossier_pdf", None)
+                                    st.success(f"Administrative directive '{ad_title}' recorded to {curr_asp['full_name']}'s Journey!")
+                                    st.rerun()
+                                else:
+                                    st.error(err or "Failed to record directive.")
+                            else:
+                                st.warning("Please provide both title and description.")
+
                 timeline = get_journey_timeline(selected_asp_id)
                 if not timeline:
                     st.info("No journey events recorded yet for this entrepreneur.")
                 else:
                     for event in timeline:
                         actor_role = event.get("actor_role", "aspirant")
-                        actor_name = event.get("actor_name") or "System"
+                        actor_name = event.get("actor_name")
+                        if actor_role == "system":
+                            actor_name = "Platform Intelligence"
+                        elif not actor_name:
+                            if actor_role == "aspirant":
+                                actor_name = "Entrepreneur"
+                            elif actor_role == "guide":
+                                actor_name = "Dedicated Guide"
+                            elif actor_role == "sme":
+                                actor_name = "Domain SME"
+                            else:
+                                actor_name = "System"
+                        std_role = get_standard_role_label(actor_role)
                         ev_data = event.get("event_data", {})
                         raw_title = ev_data.get("title") or event.get("event_type") or "Milestone"
                         raw_desc = ev_data.get("description", "")
@@ -170,18 +256,27 @@ def render_admin_portal(admin_profile: dict):
 
                         badge_bg = "#6366f1" if actor_role == "aspirant" else "#10b981" if actor_role == "guide" else "#f59e0b" if actor_role == "sme" else "#ec4899" if actor_role == "admin" else "#64748b"
 
+                        inc = event.get("included_in_roadmap", True)
+                        if inc is False:
+                            status_badge_html = '<span style="display:inline-block; font-size:0.72rem; font-weight:700; background:#FEF2F2; color:#DC2626; border:1px solid #FECACA; padding:2px 8px; border-radius:6px; margin-left:8px;">⚠️ Marked \'Not Needed\' by Aspirant</span>'
+                        else:
+                            status_badge_html = '<span style="display:inline-block; font-size:0.72rem; font-weight:700; background:#ECFDF5; color:#059669; border:1px solid #A7F3D0; padding:2px 8px; border-radius:6px; margin-left:8px;">✓ Active on Aspirant Roadmap</span>'
+
                         col_t, col_b, col_ov = st.columns([1.2, 5, 0.8])
                         with col_t:
                             st.markdown(f"""
                             <div style="font-weight:700; color:#64748B; font-size:0.9rem;">{date_display}</div>
-                            <span style="display:inline-block; font-size:0.7rem; font-weight:800; padding:2px 8px; border-radius:10px; background:{badge_bg}; color:#ffffff; text-transform:uppercase;">{actor_role}</span>
+                            <span style="display:inline-block; font-size:0.7rem; font-weight:800; padding:2px 8px; border-radius:10px; background:{badge_bg}; color:#ffffff; text-transform:uppercase;">{std_role}</span>
                             """, unsafe_allow_html=True)
                         with col_b:
                             st.markdown(f"""
                             <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px; padding:0.9rem 1.2rem; margin-bottom:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-                                <div style="font-weight:700; color:#0F172A; font-size:1.02rem;">{title}</div>
+                                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                    <div style="font-weight:700; color:#0F172A; font-size:1.02rem;">{title}</div>
+                                    <div>{status_badge_html}</div>
+                                </div>
                                 <div style="color:#334155; font-size:0.88rem; margin-top:0.25rem; line-height:1.4;">{desc}</div>
-                                <div style="font-size:0.75rem; color:#64748B; margin-top:0.3rem;">Actor: {actor_name} ({actor_role})</div>
+                                <div style="font-size:0.75rem; color:#64748B; margin-top:0.3rem;">Contributor: <strong>{actor_name}</strong> ({std_role})</div>
                             </div>
                             """, unsafe_allow_html=True)
                         with col_ov:
@@ -205,7 +300,12 @@ def render_admin_portal(admin_profile: dict):
                     cg_email = st.text_input("Email *", placeholder="e.g. rajendran@mentor.in")
                     cg_phone = st.text_input("Phone Number", placeholder="9876543211")
                 with col_cg2:
-                    cg_loc = st.selectbox("Location / District", ["Madurai", "Chennai", "Coimbatore", "Salem", "Trichy", "Other"], key="cg_loc")
+                    cg_loc_sel = st.selectbox("Location / District", MASTER_DISTRICTS_TN, index=13, key="cg_loc")
+                    cg_loc = cg_loc_sel
+                    if cg_loc_sel == "Other District / Non-TN (Specify)":
+                        cg_loc_custom = st.text_input("Specify Location / State *", placeholder="e.g. Bengaluru (Karnataka)", key="cg_custom_loc")
+                        if cg_loc_custom and cg_loc_custom.strip():
+                            cg_loc = cg_loc_custom.strip()
                     cg_exp = st.text_input("Primary Expertise *", placeholder="e.g. PMEGP Loan Specialist, Banking, Food Processing")
                     cg_pwd = st.text_input("Temporary Password", value="Guide@123")
                 cg_bio = st.text_area("Professional Background", placeholder="Retired Chief Manager with 30 years experience in MSME lending.")
@@ -264,7 +364,12 @@ def render_admin_portal(admin_profile: dict):
                     cs_email = st.text_input("Email *", placeholder="e.g. kumar@sme.in")
                     cs_phone = st.text_input("Phone Number", placeholder="9876543212")
                 with col_cs2:
-                    cs_loc = st.selectbox("Location / District", ["Madurai", "Chennai", "Coimbatore", "Salem", "Trichy", "Other"], key="cs_loc")
+                    cs_loc_sel = st.selectbox("Location / District", MASTER_DISTRICTS_TN, index=13, key="cs_loc")
+                    cs_loc = cs_loc_sel
+                    if cs_loc_sel == "Other District / Non-TN (Specify)":
+                        cs_loc_custom = st.text_input("Specify Location / State *", placeholder="e.g. Mumbai (Maharashtra)", key="cs_custom_loc")
+                        if cs_loc_custom and cs_loc_custom.strip():
+                            cs_loc = cs_loc_custom.strip()
                     cs_exp = st.text_input("Specialization Domain *", placeholder="e.g. GST Auditing, Taxation, Corporate Compliance")
                     cs_pwd = st.text_input("Temporary Password", value="Sme@123")
                 cs_ind = st.text_input("Industry Specialization", placeholder="e.g. Food Processing, Export, Manufacturing")
@@ -356,13 +461,21 @@ def render_admin_portal(admin_profile: dict):
                 else:
                     st.warning("No SMEs available. Please create an SME first.")
                     sel_s = None
+                sme_asg_mode = st.radio(
+                    "Assignment Mode",
+                    options=["➕ Add Specialist to Advisory Panel (Concurrent Multi-SME)", "🔄 Replace Existing Specialist"],
+                    index=0,
+                    help="Choose whether to add this SME alongside other specialists (e.g., GST + Legal + FSSAI) or replace the existing specialist."
+                )
                 s_notes = st.text_input("Specialist Task Notes", placeholder="e.g. Verify GST threshold and draft audit memorandum")
 
                 if st.form_submit_button("ASSIGN SME", type="primary"):
                     if sel_asp_for_s and sel_s:
-                        ok, err = assign_sme(sel_asp_for_s, sel_s, admin_id, s_notes)
+                        mode = "add" if "Add" in sme_asg_mode else "replace"
+                        ok, err = assign_sme(sel_asp_for_s, sel_s, admin_id, s_notes, mode=mode)
                         if ok:
-                            st.success(f"Assigned {sme_dict[sel_s]} to {asp_dict[sel_asp_for_s]}! Journey event logged.")
+                            action_desc = "added to advisory panel of" if mode == "add" else "assigned to"
+                            st.success(f"Specialist {sme_dict[sel_s]} {action_desc} {asp_dict[sel_asp_for_s]}! Journey event logged.")
                             st.rerun()
                         else:
                             st.error(err or "Assignment failed.")
@@ -443,20 +556,35 @@ def render_admin_portal(admin_profile: dict):
                     ns_name = st.text_input("Scheme / Fund Name *", placeholder="e.g. IndiaAI Mission Compute & Startup Support")
                     ns_agency = st.text_input("Agency / Ministry / Firm *", placeholder="e.g. MeitY (Ministry of Electronics and IT)")
                     ns_amount = st.text_input("Funding Amount *", placeholder="e.g. Up to 40% compute GPU subsidy + Rs 1 Crore grant")
-                    ns_type = st.selectbox("Funding / Capital Type", ["Grant", "Equity", "Subsidy", "Loan", "Credit Guarantee", "Compute GPU Subsidy & Cohort Grant", "Reimbursement Grant & Equity", "Convertible Note / SAFE"])
+                    ns_type_sel = st.selectbox("Funding / Capital Type", MASTER_FUNDING_TYPES)
+                    ns_custom_type = ""
+                    if ns_type_sel == "Other / Blended Capital (Specify)":
+                        ns_custom_type = st.text_input("Specify Custom Capital Type *", placeholder="e.g. SAFE, Revenue Share", key="ns_custom_type")
                 with c_ns2:
-                    ns_cat = st.selectbox("Category", ["Central Govt", "State Govt", "Private VC / Angel", "Foreign / Global"])
-                    ns_stage = st.selectbox("Eligible Stage", ["Ideation / R&D", "Pre-Seed / Seed", "Pre-Series A / Series A", "Growth / Debt Scaling"])
-                    ns_scope = st.selectbox("State Scope / Geography", ["All India", "Tamil Nadu", "Regional / Global"])
+                    ns_cat_sel = st.selectbox("Category", MASTER_CATEGORY_TYPES)
+                    ns_custom_cat = ""
+                    if ns_cat_sel == "Other / Consortium (Specify)":
+                        ns_custom_cat = st.text_input("Specify Custom Category *", placeholder="e.g. Global Consortium", key="ns_custom_cat")
+                    ns_stage_sel = st.selectbox("Eligible Stage", MASTER_STAGES)
+                    ns_custom_stage = ""
+                    if ns_stage_sel == "Other / Multi-Stage (Specify)":
+                        ns_custom_stage = st.text_input("Specify Custom Stage *", placeholder="e.g. Commercialization Phase", key="ns_custom_stage")
+                    ns_scope_sel = st.selectbox("State Scope / Geography", MASTER_GEOGRAPHIC_SCOPES)
+                    ns_custom_scope = ""
+                    if ns_scope_sel == "Other / Specific Region (Specify)":
+                        ns_custom_scope = st.text_input("Specify Custom Geography *", placeholder="e.g. South India / Tier 2 Cities", key="ns_custom_scope")
                     ns_url = st.text_input("Official Portal URL", placeholder="https://indiaai.gov.in")
+
+                ns_sectors_sel = st.multiselect("Eligible Sectors *", MASTER_SECTORS, default=["Cross-Sector / All Sectors"])
+                ns_custom_sec = ""
+                if "Other / Not Listed (Specify)" in ns_sectors_sel:
+                    ns_custom_sec = st.text_input("Specify Custom Sectors (comma-separated) *", placeholder="e.g. SpaceTech, Marine Culture", key="ns_custom_sec")
 
                 c_ns3, c_ns4 = st.columns(2)
                 with c_ns3:
-                    ns_sectors = st.text_input("Eligible Sectors (comma-separated)", placeholder="e.g. AI/ML, DeepTech, Agritech, Healthcare")
-                with c_ns4:
                     ns_brief = st.text_input("One-line Brief", placeholder="Compute infrastructure subsidies and grant support for AI startups.")
-
-                ns_desc = st.text_area("Full Description / Details", placeholder="Access to 10,000+ GPUs onboarded via empaneled providers plus cohort grants for AI ventures building sovereign IP.")
+                with c_ns4:
+                    ns_desc = st.text_area("Full Description / Details", placeholder="Access to 10,000+ GPUs onboarded via empaneled providers plus cohort grants for AI ventures building sovereign IP.", height=68)
 
                 st.markdown("##### Intelligence, Red Flags & Application Prompt")
                 ns_agenda = st.text_area("🤫 Insider Intelligence / Hidden Agenda (One point per line)", placeholder=">> MeitY wants SOVEREIGN AI & Indigenous IP - show how your model reduces reliance on foreign foundations.\n>> Emphasize local Indian compute residency.")
@@ -466,26 +594,36 @@ def render_admin_portal(admin_profile: dict):
                 if st.form_submit_button("ADD SCHEME TO CATALOGUE", type="primary"):
                     if ns_name and ns_agency:
                         import uuid
-                        new_sectors = [x.strip() for x in ns_sectors.split(",") if x.strip()] if ns_sectors else ["General", "DeepTech"]
+                        final_type = ns_custom_type.strip() if (ns_type_sel == "Other / Blended Capital (Specify)" and ns_custom_type.strip()) else ns_type_sel
+                        final_cat = ns_custom_cat.strip() if (ns_cat_sel == "Other / Consortium (Specify)" and ns_custom_cat.strip()) else ns_cat_sel
+                        final_stage = ns_custom_stage.strip() if (ns_stage_sel == "Other / Multi-Stage (Specify)" and ns_custom_stage.strip()) else ns_stage_sel
+                        final_scope = ns_custom_scope.strip() if (ns_scope_sel == "Other / Specific Region (Specify)" and ns_custom_scope.strip()) else ns_scope_sel
+
+                        final_sectors = [s for s in ns_sectors_sel if s != "Other / Not Listed (Specify)"]
+                        if ns_custom_sec and ns_custom_sec.strip():
+                            final_sectors.extend([x.strip() for x in ns_custom_sec.split(",") if x.strip()])
+                        if not final_sectors:
+                            final_sectors = ["Cross-Sector / All Sectors"]
+
                         new_agenda = [x.strip() for x in ns_agenda.split("\n") if x.strip()] if ns_agenda else [">> High impact venture creation."]
                         new_flags = [x.strip() for x in ns_flags.split("\n") if x.strip()] if ns_flags else ["!! Review official guidelines before applying."]
                         new_s_obj = {
                             "id": f"SCH-ADMIN-{uuid.uuid4().hex[:8].upper()}",
                             "name": ns_name,
                             "agency": ns_agency,
-                            "category_type": ns_cat,
-                            "funding_type": ns_type,
-                            "scheme_type": ns_type,
-                            "stage": ns_stage,
+                            "category_type": final_cat,
+                            "funding_type": final_type,
+                            "scheme_type": final_type,
+                            "stage": final_stage,
                             "amount": ns_amount,
                             "brief": ns_brief or ns_name,
                             "description": ns_desc or ns_brief or ns_name,
-                            "sectors": new_sectors,
+                            "sectors": final_sectors,
                             "hidden_agenda": new_agenda,
                             "red_flags": new_flags,
-                            "application_prompt": ns_prompt or f"ROLE: Senior Startup Funding & VC Consultant\nTARGET FUND: {ns_name} ({ns_agency})\nFUND TYPE: {ns_type}",
-                            "state_scope": ns_scope,
-                            "geography": "National" if ns_scope == "All India" else "State",
+                            "application_prompt": ns_prompt or f"ROLE: Senior Startup Funding & VC Consultant\nTARGET FUND: {ns_name} ({ns_agency})\nFUND TYPE: {final_type}",
+                            "state_scope": final_scope,
+                            "geography": "National" if final_scope == "All India" else "State",
                             "application_url": ns_url,
                             "last_verified": "September 2026",
                             "is_active": True,
@@ -508,9 +646,9 @@ def render_admin_portal(admin_profile: dict):
         with c_f1:
             sc_search = st.text_input("🔍 Search Funds & Schemes", placeholder="Search by name, agency, keyword (e.g. IndiaAI, DLI, Accel, NEEDS, PMEGP, TANSEED)...", key="adm_sc_search")
         with c_f2:
-            sc_cat = st.selectbox("Category", ["ALL", "Central Govt", "State Govt", "Private VC / Angel", "Foreign / Global"], key="adm_sc_cat")
+            sc_cat = st.selectbox("Category", ["ALL"] + MASTER_CATEGORY_TYPES, key="adm_sc_cat")
         with c_f3:
-            sc_stage = st.selectbox("Stage", ["ALL", "Ideation / R&D", "Pre-Seed / Seed", "Pre-Series A / Series A", "Growth / Debt Scaling"], key="adm_sc_stage")
+            sc_stage = st.selectbox("Stage", ["ALL"] + MASTER_STAGES, key="adm_sc_stage")
         with c_f4:
             sc_status = st.selectbox("Status", ["ALL", "Active Only", "Archived Only"], key="adm_sc_status")
 

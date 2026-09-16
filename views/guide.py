@@ -23,9 +23,9 @@ Guide Experience:
 import streamlit as st
 import html
 from datetime import date
-from services.relationships import get_assigned_aspirants_for_guide, get_aspirant_mentors
-from services.profiles import get_profile
-from services.journey import get_journey_timeline, add_guide_contribution, soft_delete_event
+from services.relationships import get_assigned_aspirants_for_guide, get_aspirant_mentors, get_assignment_history
+from services.profiles import get_profile, update_mentor_profile
+from services.journey import get_journey_timeline, add_guide_contribution, soft_delete_event, get_standard_role_label
 from services.schemes import (
     list_schemes,
     match_schemes_for_aspirant,
@@ -34,11 +34,13 @@ from services.schemes import (
     withdraw_scheme_release,
     get_guide_scheme_releases
 )
+from services.constants import MASTER_CATEGORY_TYPES, MASTER_STAGES, MASTER_DISTRICTS_TN
 from services.help_requests import (
     list_guide_requests,
     guide_respond_request,
     check_and_escalate_overdue_requests
 )
+from services.schemes_ui import parse_list_field
 
 def render_guide_portal(user_profile: dict):
     guide_id = user_profile["id"]
@@ -67,7 +69,7 @@ def render_guide_portal(user_profile: dict):
     </div>
     """, unsafe_allow_html=True)
 
-    main_tabs = st.tabs(["👥 My Aspirants", "💬 Help Requests"])
+    main_tabs = st.tabs(["👥 My Aspirants", "💬 All Consultations Overview", "👤 My Profile"])
 
     # ─────────────────────────────────────────────────────────────
     # TAB 1: MY ASPIRANTS WORKSPACE
@@ -100,12 +102,19 @@ def render_guide_portal(user_profile: dict):
             if curr_asp:
                 st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
 
-                # 4 Dedicated Context Tabs for Selected Aspirant
+                # Calculate direct consultations from this mentee
+                all_guide_tickets = list_guide_requests(guide_id) or []
+                asp_tickets = [t for t in all_guide_tickets if t.get("aspirant_id") == selected_asp_id]
+                open_cnt = sum(1 for t in asp_tickets if t.get("status") in ["OPEN", "IN_PROGRESS", "ESCALATED"])
+                consult_label = f"💬 Consultations ({open_cnt} Open)" if open_cnt > 0 else "💬 Consultations"
+
+                # 5 Dedicated Context Tabs for Selected Aspirant
                 subtabs = st.tabs([
                     "👤 Profile",
                     "🎬 Journey",
                     "🤝 Guidance Team",
-                    "🏦 Scheme Matches"
+                    "🏦 Scheme Matches",
+                    consult_label
                 ])
 
                 # ─────────────────────────────────────────────────────────
@@ -192,7 +201,20 @@ def render_guide_portal(user_profile: dict):
                             col_g1, col_g2 = st.columns(2)
                             with col_g1:
                                 m_title = st.text_input("Title / Milestone", placeholder="e.g. Business Model & PMEGP Review")
-                                m_topic = st.selectbox("Topic / Domain", ["Pricing & Model", "Market Strategy", "PMEGP Loan Preparation", "Customer Discovery", "Unit Economics", "Operations"])
+                                m_topic_sel = st.selectbox("Topic / Domain", [
+                                    "Pricing & Model",
+                                    "Market Strategy",
+                                    "PMEGP Loan Preparation",
+                                    "Customer Discovery",
+                                    "Unit Economics",
+                                    "Operations",
+                                    "Other / Specialized Advisory (Specify)"
+                                ])
+                                m_topic = m_topic_sel
+                                if m_topic_sel == "Other / Specialized Advisory (Specify)":
+                                    m_topic_custom = st.text_input("Specify Advisory Topic *", placeholder="e.g. Export Documentation", key="guide_custom_topic")
+                                    if m_topic_custom and m_topic_custom.strip():
+                                        m_topic = m_topic_custom.strip()
                             with col_g2:
                                 m_date = st.date_input("Session Date", value=date.today())
                             m_desc = st.text_area("Guidance Notes / What was achieved?", placeholder="Reviewed DPR proposal, verified eligibility criteria, and recommended applying for subsidy.")
@@ -222,7 +244,19 @@ def render_guide_portal(user_profile: dict):
                     else:
                         for event in timeline:
                             actor_role = event.get("actor_role", "aspirant")
-                            actor_name = event.get("actor_name") or "Mentor"
+                            actor_name = event.get("actor_name")
+                            if actor_role == "system":
+                                actor_name = "Platform Intelligence"
+                            elif not actor_name:
+                                if actor_role == "aspirant":
+                                    actor_name = "Entrepreneur"
+                                elif actor_role == "guide":
+                                    actor_name = "Dedicated Guide"
+                                elif actor_role == "sme":
+                                    actor_name = "Domain SME"
+                                else:
+                                    actor_name = "Advisory Council"
+                            std_role = get_standard_role_label(actor_role)
                             ev_data = event.get("event_data", {})
                             raw_title = ev_data.get("title") or event.get("event_type") or "Milestone"
                             raw_desc = ev_data.get("description", "")
@@ -232,18 +266,28 @@ def render_guide_portal(user_profile: dict):
 
                             badge_bg = "#6366f1" if actor_role == "aspirant" else "#10b981" if actor_role == "guide" else "#f59e0b" if actor_role == "sme" else "#ec4899" if actor_role == "admin" else "#64748b"
 
+                            # Founder roadmap inclusion status
+                            inc = event.get("included_in_roadmap", True)
+                            if inc is False:
+                                status_badge_html = '<span style="display:inline-block; font-size:0.72rem; font-weight:700; background:#FEF2F2; color:#DC2626; border:1px solid #FECACA; padding:2px 8px; border-radius:6px; margin-left:8px;">⚠️ Founder Marked: Not Needed</span>'
+                            else:
+                                status_badge_html = '<span style="display:inline-block; font-size:0.72rem; font-weight:700; background:#ECFDF5; color:#059669; border:1px solid #A7F3D0; padding:2px 8px; border-radius:6px; margin-left:8px;">✓ Active on Founder Roadmap</span>'
+
                             col_t, col_b, col_act = st.columns([1.2, 5, 0.8])
                             with col_t:
                                 st.markdown(f"""
                                 <div style="font-weight:700; color:#64748B; font-size:0.9rem;">{date_display}</div>
-                                <span style="display:inline-block; font-size:0.7rem; font-weight:800; padding:2px 8px; border-radius:10px; background:{badge_bg}; color:#ffffff; text-transform:uppercase;">{actor_role}</span>
+                                <span style="display:inline-block; font-size:0.7rem; font-weight:800; padding:2px 8px; border-radius:10px; background:{badge_bg}; color:#ffffff; text-transform:uppercase;">{std_role}</span>
                                 """, unsafe_allow_html=True)
                             with col_b:
                                 st.markdown(f"""
                                 <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px; padding:0.9rem 1.2rem; margin-bottom:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-                                    <div style="font-weight:700; color:#0F172A; font-size:1.05rem;">{title}</div>
+                                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                        <div style="font-weight:700; color:#0F172A; font-size:1.05rem;">{title}</div>
+                                        <div>{status_badge_html}</div>
+                                    </div>
                                     <div style="color:#334155; font-size:0.9rem; margin-top:0.3rem; line-height:1.5;">{desc}</div>
-                                    <div style="font-size:0.75rem; color:#64748B; margin-top:0.4rem;">Contributor: {actor_name} ({actor_role})</div>
+                                    <div style="font-size:0.75rem; color:#64748B; margin-top:0.4rem;">Contributor: <strong>{actor_name}</strong> ({std_role})</div>
                                 </div>
                                 """, unsafe_allow_html=True)
                             with col_act:
@@ -257,9 +301,13 @@ def render_guide_portal(user_profile: dict):
                 # ─────────────────────────────────────────────────────────
                 with subtabs[2]:
                     st.markdown(f"### Guidance Team for {curr_asp['full_name']}")
+                    st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Institutional mentors and specialized domain experts assigned to collaborate on this entrepreneur's scaling journey.</p>", unsafe_allow_html=True)
                     mentors = get_aspirant_mentors(selected_asp_id)
                     m_guide = mentors.get("guide")
                     m_sme = mentors.get("sme")
+                    m_smes = mentors.get("smes", [])
+                    if not m_smes and m_sme:
+                        m_smes = [m_sme]
 
                     col_mg1, col_mg2 = st.columns(2)
                     with col_mg1:
@@ -269,8 +317,7 @@ def render_guide_portal(user_profile: dict):
                             st.markdown(f"""
                             <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid #10b981; border-radius:12px; padding:1.2rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
                                 <div style="font-size:1.2rem; font-weight:800; color:#0F172A;">{m_guide.get('full_name')}</div>
-                                <div style="color:#059669; font-weight:600; font-size:0.85rem; margin-bottom:0.5rem;">Dedicated Enterprise Mentor</div>
-                                <p style="font-size:0.88rem; color:#334155; margin-bottom:4px;"><strong>Location:</strong> {m_guide.get('district', 'Tamil Nadu')}</p>
+                                <div style="color:#059669; font-weight:600; font-size:0.85rem; margin-bottom:0.5rem;">Dedicated Enterprise Mentor · {m_guide.get('district', 'Tamil Nadu')}</div>
                                 <p style="font-size:0.88rem; color:#334155; margin-bottom:4px;"><strong>Expertise:</strong> {gp.get('expertise', 'Enterprise Guidance')}</p>
                                 <p style="font-size:0.82rem; color:#64748B; margin-top:0.5rem;"><em>"{gp.get('bio', 'Assigned by Administrator')}"</em></p>
                             </div>
@@ -279,20 +326,31 @@ def render_guide_portal(user_profile: dict):
                             st.info("No Guide assigned.")
 
                     with col_mg2:
-                        st.markdown("#### 🔬 Assigned Domain SME")
-                        if m_sme:
-                            sp = m_sme.get("profile_data", {})
-                            st.markdown(f"""
-                            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid #f59e0b; border-radius:12px; padding:1.2rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
-                                <div style="font-size:1.2rem; font-weight:800; color:#0F172A;">{m_sme.get('full_name')}</div>
-                                <div style="color:#D97706; font-weight:600; font-size:0.85rem; margin-bottom:0.5rem;">Subject Matter Expert</div>
-                                <p style="font-size:0.88rem; color:#334155; margin-bottom:4px;"><strong>Specialization:</strong> {sp.get('expertise', 'Technical Advisory')}</p>
-                                <p style="font-size:0.88rem; color:#334155; margin-bottom:4px;"><strong>Industry:</strong> {sp.get('industry', 'Advisory')}</p>
-                                <p style="font-size:0.82rem; color:#64748B; margin-top:0.5rem;"><em>"{sp.get('bio', 'Technical Specialist')}"</em></p>
-                            </div>
-                            """, unsafe_allow_html=True)
+                        smes_count = len(m_smes)
+                        header_label = f"🔬 Domain Advisory Panel ({smes_count} Specialists)" if smes_count > 1 else "🔬 Assigned Domain SME"
+                        st.markdown(f"#### {header_label}")
+                        if m_smes:
+                            for idx, sp_item in enumerate(m_smes):
+                                sp = sp_item.get("profile_data", {})
+                                s_name = sp_item.get("full_name", "Specialist")
+                                s_dist = sp_item.get("district", "Tamil Nadu")
+                                s_exp = sp.get("expertise") or sp.get("industry") or "Technical & Compliance Advisory"
+                                s_ind = sp.get("industry") or "Compliance"
+                                s_bio = sp.get("bio") or "Assigned by Administrator to provide specialized domain advisory."
+                                st.markdown(f"""
+                                <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid #f59e0b; border-radius:12px; padding:1.2rem; margin-bottom:0.75rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <div style="font-size:1.15rem; font-weight:800; color:#0F172A;">{s_name}</div>
+                                        <span style="background:#FFFBEB; color:#D97706; border:1px solid #FDE68A; font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:6px;">SPECIALIST #{idx+1}</span>
+                                    </div>
+                                    <div style="color:#D97706; font-weight:600; font-size:0.85rem; margin-bottom:0.5rem;">Subject Matter Expert · {s_dist}</div>
+                                    <p style="font-size:0.88rem; color:#334155; margin-bottom:4px;"><strong>Specialization:</strong> {s_exp}</p>
+                                    <p style="font-size:0.88rem; color:#334155; margin-bottom:4px;"><strong>Industry:</strong> {s_ind}</p>
+                                    <p style="font-size:0.82rem; color:#64748B; margin-top:0.5rem;"><em>"{s_bio}"</em></p>
+                                </div>
+                                """, unsafe_allow_html=True)
                         else:
-                            st.info("No Domain SME assigned.")
+                            st.info("No Domain SME assigned yet. The Admin assigns specialized experts when required.")
 
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 4: SCHEME MATCHES (THE GATEKEEPER WORKSPACE)
@@ -396,27 +454,24 @@ def render_guide_portal(user_profile: dict):
                                     """, unsafe_allow_html=True)
 
                                 # Guide-Only Private Intelligence
-                                agenda_text = m_scheme.get("hidden_agenda")
-                                if isinstance(agenda_text, list):
-                                    agenda_str = "<br>".join(f"• {html.escape(str(x))}" for x in agenda_text if str(x).strip())
-                                else:
-                                    agenda_str = html.escape(str(agenda_text or "No hidden agenda specified."))
-
-                                flags_text = m_scheme.get("red_flags")
-                                if isinstance(flags_text, list):
-                                    flags_str = "<br>".join(f"• {html.escape(str(x))}" for x in flags_text if str(x).strip())
-                                else:
-                                    flags_str = html.escape(str(flags_text or "No specific red flags identified."))
+                                agenda_str = parse_list_field(
+                                    m_scheme.get("hidden_agenda"),
+                                    default=">> Emphasize local job creation, import substitution & revenue growth."
+                                )
+                                flags_str = parse_list_field(
+                                    m_scheme.get("red_flags"),
+                                    default="!! Verify official sanction terms, audit rules & equity rights before signing."
+                                )
 
                                 st.markdown(f"""
-                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:0.75rem;">
-                                    <div style="background:rgba(245,158,11,0.12); border-left:4px solid #F59E0B; padding:0.75rem; border-radius:0 8px 8px 0; font-size:0.82rem; color:#FCD34D; line-height:1.4;">
-                                        <div style="font-weight:800; color:#FBBF24; margin-bottom:4px; font-size:0.82rem;">🤫 INSIDER INTELLIGENCE (Guide Only):</div>
-                                        <div>{agenda_str}</div>
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:0.85rem;">
+                                    <div style="background:#FFFDF0; border:1.5px solid #F59E0B; border-left:5px solid #D97706; padding:0.85rem 1rem; border-radius:0 8px 8px 0; font-size:0.86rem; color:#0F172A; line-height:1.55; box-shadow:0 1px 3px rgba(217,119,6,0.08);">
+                                        <div style="font-weight:900; color:#92400E; margin-bottom:6px; font-size:0.84rem; letter-spacing:0.4px; text-transform:uppercase;">🤫 INSIDER INTELLIGENCE (Guide Only):</div>
+                                        <div style="color:#0F172A; font-weight:600;">{agenda_str}</div>
                                     </div>
-                                    <div style="background:rgba(239,68,68,0.12); border-left:4px solid #EF4444; padding:0.75rem; border-radius:0 8px 8px 0; font-size:0.82rem; color:#FCA5A5; line-height:1.4;">
-                                        <div style="font-weight:800; color:#F87171; margin-bottom:4px; font-size:0.82rem;">⚠️ RED FLAGS (Guide Only):</div>
-                                        <div>{flags_str}</div>
+                                    <div style="background:#FFF5F5; border:1.5px solid #F87171; border-left:5px solid #DC2626; padding:0.85rem 1rem; border-radius:0 8px 8px 0; font-size:0.86rem; color:#0F172A; line-height:1.55; box-shadow:0 1px 3px rgba(220,38,38,0.08);">
+                                        <div style="font-weight:900; color:#991B1B; margin-bottom:6px; font-size:0.84rem; letter-spacing:0.4px; text-transform:uppercase;">⚠️ RED FLAGS (Guide Only):</div>
+                                        <div style="color:#0F172A; font-weight:600;">{flags_str}</div>
                                     </div>
                                 </div>
                                 """, unsafe_allow_html=True)
@@ -473,9 +528,9 @@ def render_guide_portal(user_profile: dict):
                         with c_s1:
                             g_sc_search = st.text_input("🔍 Search Master Catalogue", placeholder="e.g. PMEGP, TANSEED, NEEDS, MUDRA...", key="g_sc_search")
                         with c_s2:
-                            g_sc_cat = st.selectbox("Category", ["ALL", "Central Govt", "State Govt", "Private VC / Angel", "Foreign / Global"], key="g_sc_cat")
+                            g_sc_cat = st.selectbox("Category", ["ALL"] + MASTER_CATEGORY_TYPES, key="g_sc_cat")
                         with c_s3:
-                            g_sc_stage = st.selectbox("Stage", ["ALL", "Ideation / R&D", "Pre-Seed / Seed", "Pre-Series A / Series A", "Growth / Debt Scaling"], key="g_sc_stage")
+                            g_sc_stage = st.selectbox("Stage", ["ALL"] + MASTER_STAGES, key="g_sc_stage")
 
                         available_schemes = list_schemes(search=g_sc_search, category=g_sc_cat, stage=g_sc_stage, active_only=True)
 
@@ -532,27 +587,24 @@ def render_guide_portal(user_profile: dict):
                                 """, unsafe_allow_html=True)
 
                                 # Guide-Only Private Intelligence
-                                agenda_text = eval_scheme.get("hidden_agenda")
-                                if isinstance(agenda_text, list):
-                                    agenda_str = "<br>".join(f"• {html.escape(str(x))}" for x in agenda_text if str(x).strip())
-                                else:
-                                    agenda_str = html.escape(str(agenda_text or "No hidden agenda specified."))
-
-                                flags_text = eval_scheme.get("red_flags")
-                                if isinstance(flags_text, list):
-                                    flags_str = "<br>".join(f"• {html.escape(str(x))}" for x in flags_text if str(x).strip())
-                                else:
-                                    flags_str = html.escape(str(flags_text or "No specific red flags identified."))
+                                agenda_str = parse_list_field(
+                                    eval_scheme.get("hidden_agenda"),
+                                    default=">> Emphasize local job creation, import substitution & revenue growth."
+                                )
+                                flags_str = parse_list_field(
+                                    eval_scheme.get("red_flags"),
+                                    default="!! Verify official sanction terms, audit rules & equity rights before signing."
+                                )
 
                                 st.markdown(f"""
                                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:1rem;">
-                                    <div style="background:rgba(245,158,11,0.12); border-left:4px solid #F59E0B; padding:0.85rem; border-radius:0 8px 8px 0; font-size:0.84rem; color:#FCD34D; line-height:1.45;">
-                                        <div style="font-weight:800; color:#FBBF24; margin-bottom:4px; font-size:0.85rem;">🤫 INSIDER INTELLIGENCE / HIDDEN AGENDA (Guide Only):</div>
-                                        <div>{agenda_str}</div>
+                                    <div style="background:#FFFDF0; border:1.5px solid #F59E0B; border-left:5px solid #D97706; padding:0.85rem 1rem; border-radius:0 8px 8px 0; font-size:0.86rem; color:#0F172A; line-height:1.55; box-shadow:0 1px 3px rgba(217,119,6,0.08);">
+                                        <div style="font-weight:900; color:#92400E; margin-bottom:6px; font-size:0.85rem; letter-spacing:0.4px; text-transform:uppercase;">🤫 INSIDER INTELLIGENCE / HIDDEN AGENDA (Guide Only):</div>
+                                        <div style="color:#0F172A; font-weight:600;">{agenda_str}</div>
                                     </div>
-                                    <div style="background:rgba(239,68,68,0.12); border-left:4px solid #EF4444; padding:0.85rem; border-radius:0 8px 8px 0; font-size:0.84rem; color:#FCA5A5; line-height:1.45;">
-                                        <div style="font-weight:800; color:#F87171; margin-bottom:4px; font-size:0.85rem;">⚠️ RED FLAGS / STRICT CAUTIONS (Guide Only):</div>
-                                        <div>{flags_str}</div>
+                                    <div style="background:#FFF5F5; border:1.5px solid #F87171; border-left:5px solid #DC2626; padding:0.85rem 1rem; border-radius:0 8px 8px 0; font-size:0.86rem; color:#0F172A; line-height:1.55; box-shadow:0 1px 3px rgba(220,38,38,0.08);">
+                                        <div style="font-weight:900; color:#991B1B; margin-bottom:6px; font-size:0.85rem; letter-spacing:0.4px; text-transform:uppercase;">⚠️ RED FLAGS / STRICT CAUTIONS (Guide Only):</div>
+                                        <div style="color:#0F172A; font-weight:600;">{flags_str}</div>
                                     </div>
                                 </div>
                                 """, unsafe_allow_html=True)
@@ -635,18 +687,88 @@ def render_guide_portal(user_profile: dict):
                                 </div>
                                 """, unsafe_allow_html=True)
 
+                # ─────────────────────────────────────────────────────────
+                # SUBTAB 5: ASPIRANT CONSULTATIONS & DIRECT QUERIES
+                # ─────────────────────────────────────────────────────────
+                with subtabs[4]:
+                    st.subheader(f"Direct Consultations: {curr_asp['full_name']}")
+                    st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>Consultation requests submitted by <strong>{curr_asp['full_name']}</strong> requiring your guidance and strategic advice.</p>", unsafe_allow_html=True)
+
+                    if not asp_tickets:
+                        st.info(f"No consultation requests currently recorded from {curr_asp['full_name']}.")
+                    else:
+                        for t in asp_tickets:
+                            t_status = t.get("status", "OPEN")
+                            st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981" if t_status == "RESOLVED" else "#ef4444"
+                            is_escalated = (t_status == "ESCALATED")
+
+                            escaped_subject = html.escape(t.get('subject', 'Support Ticket'))
+                            escaped_asp_name = html.escape(t.get('aspirant_name') or curr_asp.get('full_name', 'Entrepreneur'))
+                            escaped_asp_email = html.escape(t.get('aspirant_email') or curr_asp.get('email', ''))
+                            escaped_message = html.escape(t.get('message', '')).replace('\n', '<br>')
+                            border_color = '#EF4444' if is_escalated else '#E2E8F0'
+
+                            escalated_html = ""
+                            if is_escalated:
+                                esc_reason = html.escape(t.get('escalation_reason') or 'Automatically escalated after 7 days without resolution.')
+                                escalated_html = f'<div style="background:#FEF2F2; border:1px solid #F87171; border-radius:6px; padding:0.5rem 0.8rem; color:#991B1B; font-weight:700; font-size:0.84rem; margin-top:0.5rem;">⚠️ ESCALATED TO ADMIN: {esc_reason}</div>'
+
+                            guide_resp_html = ""
+                            if t.get('guide_response'):
+                                g_resp = html.escape(t.get('guide_response') or '').replace('\n', '<br>')
+                                guide_resp_html = f'<div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:3px solid #10b981; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#166534; margin-top:0.5rem;"><strong>Your Guidance Response:</strong> {g_resp}</div>'
+
+                            card_html = (
+                                f'<div style="background:#FFFFFF; border:1px solid {border_color}; border-left:4px solid {st_color}; border-radius:0 12px 12px 0; padding:1.2rem; margin-bottom:0.8rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
+                                f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+                                f'<div><span style="font-size:1.1rem; font-weight:800; color:#0F172A;">{escaped_subject}</span>'
+                                f'<span style="font-size:0.75rem; font-weight:800; background:{st_color}; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:8px;">{t_status}</span>'
+                                f'<span style="font-size:0.75rem; font-weight:700; background:#F1F5F9; color:#475569; padding:2px 8px; border-radius:6px; margin-left:4px;">{t.get("priority","MEDIUM")}</span></div>'
+                                f'<div style="font-size:0.8rem; color:#64748B;">{str(t.get("created_at",""))[:16]}</div>'
+                                f'</div>'
+                                f'<div style="font-size:0.85rem; color:#64748B; margin:4px 0;">From: <strong style="color:#0F172A;">{escaped_asp_name}</strong> ({escaped_asp_email})</div>'
+                                f'<div style="font-size:0.9rem; color:#334155; margin-top:0.4rem; line-height:1.45;">{escaped_message}</div>'
+                                f'{escalated_html}{guide_resp_html}'
+                                f'</div>'
+                            )
+                            st.markdown(card_html, unsafe_allow_html=True)
+
+                            if t_status in ["OPEN", "IN_PROGRESS", "ESCALATED"]:
+                                with st.expander(f"💬 Provide Advisory Guidance for '{t.get('subject')}'", expanded=False):
+                                    with st.form(f"form_guide_resp_sub_{t['id']}"):
+                                        c_r1, c_r2 = st.columns([1, 2])
+                                        with c_r1:
+                                            new_st = st.selectbox("Update Status", ["IN_PROGRESS", "RESOLVED"], key=f"sel_st_sub_{t['id']}")
+                                        with c_r2:
+                                            resp_text = st.text_area("Guidance / Recommendation *", placeholder="Enter specific instructions or confirm resolution...", height=80, key=f"txt_resp_sub_{t['id']}")
+
+                                        if st.form_submit_button("Submit Guidance & Update", type="primary"):
+                                            if not resp_text.strip():
+                                                st.warning("Please enter your guidance response.")
+                                            else:
+                                                ok, err = guide_respond_request(t["id"], guide_id, new_st, resp_text.strip())
+                                                if ok:
+                                                    st.success("Guidance response recorded and student notified!")
+                                                    st.rerun()
+                                                else:
+                                                    st.error(err or "Failed to record response.")
+
     # ─────────────────────────────────────────────────────────────
-    # TAB 2: GUIDE HELP REQUESTS QUEUE
+    # TAB 2: GUIDE CONSULTATIONS QUEUE
     # ─────────────────────────────────────────────────────────────
     with main_tabs[1]:
-        st.subheader("Assigned Help Requests")
-        st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Support tickets submitted by your assigned entrepreneurs. Tickets pending for more than 7 days automatically escalate to the Administrator.</p>", unsafe_allow_html=True)
+        st.subheader("Assigned Mentee Consultations")
+        st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Consultation requests submitted by your assigned entrepreneurs. Inquiries pending for more than 7 days automatically escalate to the Administrator.</p>", unsafe_allow_html=True)
 
         col_f1, col_f2 = st.columns([3, 1])
         with col_f2:
             status_filter = st.selectbox("Status Filter", ["ALL", "OPEN", "IN_PROGRESS", "RESOLVED", "ESCALATED"], key="guide_hr_status_filter")
 
         guide_tickets = list_guide_requests(guide_id)
+        # Only show tickets from currently assigned caseload entrepreneurs
+        assigned_asp_ids = {a["id"] for a in (assigned_aspirants or [])}
+        guide_tickets = [t for t in (guide_tickets or []) if t.get("aspirant_id") in assigned_asp_ids]
+
         if status_filter != "ALL":
             guide_tickets = [t for t in guide_tickets if t.get("status") == status_filter]
 
@@ -658,30 +780,42 @@ def render_guide_portal(user_profile: dict):
                 st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981" if t_status == "RESOLVED" else "#ef4444"
                 is_escalated = (t_status == "ESCALATED")
 
-                st.markdown(f"""
-                <div style="background:#FFFFFF; border:1px solid {'#EF4444' if is_escalated else '#E2E8F0'}; border-left:4px solid {st_color}; border-radius:0 12px 12px 0; padding:1.2rem; margin-bottom:0.8rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <span style="font-size:1.1rem; font-weight:800; color:#0F172A;">{html.escape(t.get('subject','Support Ticket'))}</span>
-                            <span style="font-size:0.75rem; font-weight:800; background:{st_color}; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:8px;">{t_status}</span>
-                            <span style="font-size:0.75rem; font-weight:700; background:#F1F5F9; color:#475569; padding:2px 8px; border-radius:6px; margin-left:4px;">{t.get('priority','MEDIUM')}</span>
-                        </div>
-                        <div style="font-size:0.8rem; color:#64748B;">{str(t.get('created_at',''))[:16]}</div>
-                    </div>
-                    <div style="font-size:0.85rem; color:#64748B; margin:4px 0;">
-                        From: <strong style="color:#0F172A;">{html.escape(t.get('aspirant_name') or 'Entrepreneur')}</strong> ({html.escape(t.get('aspirant_email') or '')})
-                    </div>
-                    <div style="font-size:0.9rem; color:#334155; margin-top:0.4rem; line-height:1.45;">
-                        {html.escape(t.get('message',''))}
-                    </div>
-                    {f'''<div style="background:#FEF2F2; border:1px solid #F87171; border-radius:6px; padding:0.5rem 0.8rem; color:#991B1B; font-weight:700; font-size:0.84rem; margin-top:0.5rem;">
-                        ⚠️ ESCALATED TO ADMIN: {html.escape(t.get('escalation_reason') or 'Automatically escalated after 7 days without resolution.')}
-                    </div>''' if is_escalated else ''}
-                    {f'''<div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:3px solid #10b981; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#166534; margin-top:0.5rem;">
-                        <strong>Guide Response:</strong> {html.escape(t.get('guide_response') or '')}
-                    </div>''' if t.get('guide_response') else ''}
-                </div>
-                """, unsafe_allow_html=True)
+                escaped_subject = html.escape(t.get('subject', 'Support Ticket'))
+                escaped_asp_name = html.escape(t.get('aspirant_name') or 'Entrepreneur')
+                escaped_asp_email = html.escape(t.get('aspirant_email') or '')
+                escaped_message = html.escape(t.get('message', '')).replace('\n', '<br>')
+                border_color = '#EF4444' if is_escalated else '#E2E8F0'
+
+                escalated_html = ""
+                if is_escalated:
+                    esc_reason = html.escape(t.get('escalation_reason') or 'Automatically escalated after 7 days without resolution.')
+                    escalated_html = f'<div style="background:#FEF2F2; border:1px solid #F87171; border-radius:6px; padding:0.5rem 0.8rem; color:#991B1B; font-weight:700; font-size:0.84rem; margin-top:0.5rem;">⚠️ ESCALATED TO ADMIN: {esc_reason}</div>'
+
+                guide_resp_html = ""
+                if t.get('guide_response'):
+                    g_resp = html.escape(t.get('guide_response') or '').replace('\n', '<br>')
+                    guide_resp_html = f'<div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:3px solid #10b981; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#166534; margin-top:0.5rem;"><strong>Guide Response:</strong> {g_resp}</div>'
+
+                card_html = (
+                    f'<div style="background:#FFFFFF; border:1px solid {border_color}; border-left:4px solid {st_color}; border-radius:0 12px 12px 0; padding:1.2rem; margin-bottom:0.8rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
+                    f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+                    f'<div><span style="font-size:1.1rem; font-weight:800; color:#0F172A;">{escaped_subject}</span>'
+                    f'<span style="font-size:0.75rem; font-weight:800; background:{st_color}; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:8px;">{t_status}</span>'
+                    f'<span style="font-size:0.75rem; font-weight:700; background:#F1F5F9; color:#475569; padding:2px 8px; border-radius:6px; margin-left:4px;">{t.get("priority","MEDIUM")}</span></div>'
+                    f'<div style="font-size:0.8rem; color:#64748B;">{str(t.get("created_at",""))[:16]}</div>'
+                    f'</div>'
+                    f'<div style="font-size:0.85rem; color:#64748B; margin:4px 0;">From: <strong style="color:#0F172A;">{escaped_asp_name}</strong> ({escaped_asp_email})</div>'
+                    f'<div style="font-size:0.9rem; color:#334155; margin-top:0.4rem; line-height:1.45;">{escaped_message}</div>'
+                    f'{escalated_html}{guide_resp_html}'
+                    f'</div>'
+                )
+                st.markdown(card_html, unsafe_allow_html=True)
+
+                col_btn_m, _ = st.columns([1, 3])
+                with col_btn_m:
+                    if st.button("Open Mentee Profile →", key=f"btn_open_mentee_{t['id']}_{t.get('aspirant_id')}"):
+                        st.session_state["guide_selected_aspirant"] = t.get("aspirant_id")
+                        st.rerun()
 
                 if t_status in ["OPEN", "IN_PROGRESS"]:
                     with st.expander(f"💬 Respond to '{t.get('subject')}'", expanded=False):
@@ -702,3 +836,91 @@ def render_guide_portal(user_profile: dict):
                                         st.rerun()
                                     else:
                                         st.error(err or "Failed to record response.")
+
+    # ─────────────────────────────────────────────────────────────
+    # TAB 3: GUIDE PROFILE & TRANSITION HISTORY
+    # ─────────────────────────────────────────────────────────────
+    with main_tabs[2]:
+        st.subheader("👤 My Guide Profile")
+        st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Manage your contact information, advisory credentials, and view your mentorship assignment transitions.</p>", unsafe_allow_html=True)
+
+        cur_profile = get_profile(guide_id) or user_profile
+        cur_data = cur_profile.get("profile_data", {})
+        if isinstance(cur_data, str):
+            import json
+            try:
+                cur_data = json.loads(cur_data)
+            except Exception:
+                cur_data = {}
+
+        # Profile Card
+        st.markdown(f"""
+        <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid #10b981; border-radius:0 12px 12px 0; padding:1.25rem; margin-bottom:1.5rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div>
+                    <h3 style="margin:0; color:#0F172A; font-size:1.35rem;">{cur_profile.get('full_name')}</h3>
+                    <div style="color:#059669; font-weight:700; font-size:0.9rem; margin-top:2px;">Institutional Enterprise Mentor · {cur_profile.get('district', 'Tamil Nadu')}</div>
+                    <div style="color:#475569; font-size:0.85rem; margin-top:0.35rem;">
+                        <strong>Email:</strong> {cur_profile.get('email')} | <strong>Phone:</strong> {cur_profile.get('phone') or 'Not Set'}
+                    </div>
+                    <div style="color:#334155; font-size:0.88rem; margin-top:0.4rem;">
+                        <strong>Primary Expertise:</strong> {cur_data.get('expertise', 'Business Guidance & Planning')}
+                    </div>
+                    {f'<div style="font-size:0.85rem; color:#64748B; margin-top:0.4rem; font-style:italic;">"{cur_data.get("bio")}"</div>' if cur_data.get('bio') else ''}
+                </div>
+                <span style="background:#ECFDF5; color:#059669; border:1px solid #A7F3D0; font-size:0.75rem; font-weight:800; padding:3px 10px; border-radius:8px;">VERIFIED GUIDE</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.expander("✏️ Edit My Profile & Contact Information", expanded=False):
+            with st.form("form_edit_guide_profile"):
+                col_ep1, col_ep2 = st.columns(2)
+                with col_ep1:
+                    eg_name = st.text_input("Full Name *", value=cur_profile.get("full_name", ""))
+                    eg_phone = st.text_input("Phone Number *", value=cur_profile.get("phone", ""), placeholder="e.g. 9876543210")
+                with col_ep2:
+                    cur_loc = cur_profile.get("district", "Chennai")
+                    dist_idx = MASTER_DISTRICTS_TN.index(cur_loc) if cur_loc in MASTER_DISTRICTS_TN else 13
+                    eg_loc = st.selectbox("Location / District *", MASTER_DISTRICTS_TN, index=dist_idx, key="guide_prof_dist")
+                    eg_exp = st.text_input("Primary Advisory Expertise *", value=cur_data.get("expertise", ""), placeholder="e.g. PMEGP Loan Specialist, MSME Scaling")
+                eg_bio = st.text_area("Professional Background & Certifications", value=cur_data.get("bio", ""), placeholder="Describe your background, years of experience, and specialized certifications...", height=100)
+
+                if st.form_submit_button("SAVE PROFILE CHANGES", type="primary", use_container_width=True):
+                    if eg_name.strip() and eg_exp.strip():
+                        upd_p, upd_err = update_mentor_profile(
+                            user_id=guide_id,
+                            full_name=eg_name.strip(),
+                            phone=eg_phone.strip(),
+                            district=eg_loc,
+                            expertise=eg_exp.strip(),
+                            bio=eg_bio.strip()
+                        )
+                        if upd_p:
+                            st.success("Your Guide profile has been updated successfully!")
+                            st.rerun()
+                        else:
+                            st.error(upd_err or "Failed to update profile.")
+                    else:
+                        st.warning("Please fill in your name and primary expertise.")
+
+        st.markdown("#### 📜 Mentorship Assignment & Transition History")
+        st.markdown("<p style='color:#64748B; font-size:0.85rem;'>Historical record of students assigned to your guidance roster, including administrative reassignments.</p>", unsafe_allow_html=True)
+
+        history_rows = get_assignment_history(mentor_id=guide_id)
+        if not history_rows:
+            st.info("No transition history recorded yet.")
+        else:
+            for h in history_rows:
+                act = h.get("action", "ASSIGNED")
+                act_color = "#10b981" if act == "ASSIGNED" else "#f59e0b" if act == "REPLACED" else "#ef4444"
+                st.markdown(f"""
+                <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.5rem; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <span style="background:{act_color}; color:#fff; font-size:0.7rem; font-weight:800; padding:2px 6px; border-radius:4px; margin-right:6px;">{act}</span>
+                        <strong style="color:#0F172A; font-size:0.9rem;">{h.get('aspirant_name', 'Student')}</strong>
+                        <span style="color:#64748B; font-size:0.8rem; margin-left:6px;">({h.get('notes') or 'No notes'})</span>
+                    </div>
+                    <div style="color:#94A3B8; font-size:0.8rem;">{str(h.get('created_at',''))[:16]}</div>
+                </div>
+                """, unsafe_allow_html=True)

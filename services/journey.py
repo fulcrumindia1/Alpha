@@ -10,15 +10,61 @@ Delete Rules:
 - Guide: Can delete/edit only own contributions.
 - SME: Can delete/edit only own contributions.
 - Admin: Can manage/remove entries via administrative soft deletion.
+Supports dual backends: Supabase (primary) and SQLite (explicit local development).
 """
 
+import json
+import uuid
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Tuple
-from services.auth import get_supabase_client
+from services.auth import get_supabase_client, get_supabase_admin_client, get_data_backend
 from services.local_db import get_local_db
 
+def _get_user_client():
+    """Returns the authenticated user's Supabase client (RLS-enforced)."""
+    return get_supabase_client()
+
+def _get_admin_client():
+    """Returns the privileged admin Supabase client (bypasses RLS). Use sparingly."""
+    return get_supabase_admin_client()
+
 def get_or_create_journey(aspirant_id: str, title: Optional[str] = None) -> Dict:
-    """Retrieves or creates the journey record for an aspirant."""
+    """Retrieves or creates the journey record for an aspirant using active backend."""
+    backend = get_data_backend()
+
+    if backend == "supabase":
+        client = _get_user_client()
+        if client:
+            try:
+                res = client.table("journeys").select("*").eq("aspirant_id", aspirant_id).execute()
+                if res.data and len(res.data) > 0:
+                    return res.data[0]
+            except Exception:
+                pass
+
+        # Admin client fallback ensures that Guide, Admin, or background services can always resolve the Journey
+        admin = _get_admin_client()
+        if admin:
+            try:
+                res = admin.table("journeys").select("*").eq("aspirant_id", aspirant_id).execute()
+                if res.data and len(res.data) > 0:
+                    return res.data[0]
+                # Create journey if missing
+                default_title = title or "Enterprise Journey"
+                new_journey = {
+                    "aspirant_id": aspirant_id,
+                    "title": default_title,
+                    "business_type": "Entrepreneurship",
+                    "stage": "idea",
+                    "status": "active"
+                }
+                c_res = admin.table("journeys").insert(new_journey).execute()
+                if c_res.data and len(c_res.data) > 0:
+                    return c_res.data[0]
+            except Exception as e:
+                print(f"[Journey] Supabase get_or_create_journey admin error: {e}")
+
+    # SQLite local mode
     local_db = get_local_db()
     j = local_db.get_journey(aspirant_id)
     if not j:
@@ -27,42 +73,150 @@ def get_or_create_journey(aspirant_id: str, title: Optional[str] = None) -> Dict
         j = local_db.get_journey(aspirant_id)
     return j
 
+def get_standard_role_label(role: str, is_aspirant_facing: bool = False) -> str:
+    """
+    Standardizes internal role keys into official platform titles:
+    - aspirant -> Aspirant
+    - guide -> Guide
+    - sme -> SME (Subject Matter Expert)
+    - admin -> Institutional Advisory Council (if aspirant-facing) or Admin
+    - system -> System Automation
+    """
+    r = str(role or "").lower().strip()
+    if r == "aspirant":
+        return "Aspirant"
+    elif r == "guide":
+        return "Guide"
+    elif r == "sme":
+        return "SME (Subject Matter Expert)"
+    elif r == "admin":
+        return "Institutional Advisory Council" if is_aspirant_facing else "Admin"
+    elif r == "system":
+        return "System Automation"
+    return role.capitalize() if role else "Contributor"
+
 def get_journey_timeline(aspirant_id: str) -> List[Dict]:
     """
-    Returns the complete chronological timeline of journey events.
+    Returns the complete chronological timeline of journey events, ordered
+    with the most recent on top (DESC).
     Excludes soft-deleted records.
     """
-    # 1. Fetch from Supabase if available
-    client = get_supabase_client()
-    if client:
-        try:
-            res = client.table("journey_events")\
-                .select("*, profiles:actor_id(full_name)")\
-                .eq("aspirant_id", aspirant_id)\
-                .is_("deleted_at", "null")\
-                .order("event_date", desc=False)\
-                .execute()
-            if res.data:
+    backend = get_data_backend()
+
+    if backend == "supabase":
+        client = _get_user_client()
+        if client:
+            try:
+                res = client.table("journey_events")\
+                    .select("*, profiles:actor_id(full_name)")\
+                    .eq("aspirant_id", aspirant_id)\
+                    .is_("deleted_at", "null")\
+                    .order("event_date", desc=True)\
+                    .order("created_at", desc=True)\
+                    .execute()
+                if res.data:
+                    timeline = []
+                    for e in res.data:
+                        actor_name = e.get("profiles", {}).get("full_name") if e.get("profiles") else "Contributor"
+                        e["actor_name"] = actor_name
+                        data = e.get("event_data") or {}
+                        if isinstance(data, str):
+                            try:
+                                data = json.loads(data)
+                            except Exception:
+                                data = {}
+                        top_inc = e.get("included_in_roadmap")
+                        e["title"] = data.get("title", e.get("event_type", "Event"))
+                        e["description"] = data.get("description", "")
+                        e["included_in_roadmap"] = (top_inc if top_inc is not None else data.get("included_in_roadmap", True)) is not False
+                        timeline.append(e)
+                    return timeline
+            except Exception as e:
+                print(f"[Journey] Supabase timeline user client error: {e}")
+
+        # Admin fallback for administrative review & cross-role inspection
+        admin = _get_admin_client()
+        if admin:
+            try:
+                res = admin.table("journey_events")\
+                    .select("*, profiles:actor_id(full_name)")\
+                    .eq("aspirant_id", aspirant_id)\
+                    .is_("deleted_at", "null")\
+                    .order("event_date", desc=True)\
+                    .order("created_at", desc=True)\
+                    .execute()
                 timeline = []
-                for e in res.data:
+                for e in (res.data or []):
                     actor_name = e.get("profiles", {}).get("full_name") if e.get("profiles") else "Contributor"
                     e["actor_name"] = actor_name
                     data = e.get("event_data") or {}
                     if isinstance(data, str):
                         try:
-                            import json
                             data = json.loads(data)
                         except Exception:
                             data = {}
+                    top_inc = e.get("included_in_roadmap")
                     e["title"] = data.get("title", e.get("event_type", "Event"))
                     e["description"] = data.get("description", "")
+                    e["included_in_roadmap"] = (top_inc if top_inc is not None else data.get("included_in_roadmap", True)) is not False
                     timeline.append(e)
                 return timeline
-        except Exception:
-            pass
+            except Exception as e:
+                print(f"[Journey] Supabase timeline admin error: {e}")
+        return []
 
-    # 2. Resilient local fallback
+    # SQLite local fallback
     return get_local_db().get_journey_events(aspirant_id)
+
+def toggle_event_roadmap_inclusion(
+    event_id: str,
+    aspirant_id: str,
+    included: bool
+) -> Tuple[bool, Optional[str]]:
+    """
+    Allows an Aspirant to toggle whether a contribution is included in their personal journey roadmap.
+    Mentors (Guide/SME) and Admins retain full visibility with inclusion status indicators.
+    """
+    backend = get_data_backend()
+    if backend == "supabase":
+        admin = _get_admin_client() or _get_user_client()
+        if not admin:
+            return False, "Database client not available."
+        try:
+            res = admin.table("journey_events").select("*").eq("id", event_id).eq("aspirant_id", aspirant_id).execute()
+            if not res.data or len(res.data) == 0:
+                return False, "Journey event not found."
+            ev = res.data[0]
+            ev_data = ev.get("event_data") or {}
+            if isinstance(ev_data, str):
+                try:
+                    ev_data = json.loads(ev_data)
+                except Exception:
+                    ev_data = {}
+            ev_data["included_in_roadmap"] = bool(included)
+            now_iso = datetime.now(timezone.utc).isoformat()
+            payload = {
+                "event_data": ev_data,
+                "included_in_roadmap": bool(included),
+                "updated_at": now_iso
+            }
+            try:
+                admin.table("journey_events").update(payload).eq("id", event_id).eq("aspirant_id", aspirant_id).execute()
+            except Exception:
+                # Fallback if column included_in_roadmap has not been applied yet in remote schema
+                admin.table("journey_events").update({
+                    "event_data": ev_data,
+                    "updated_at": now_iso
+                }).eq("id", event_id).eq("aspirant_id", aspirant_id).execute()
+            return True, None
+        except Exception as e:
+            return False, f"Failed to update roadmap status in Supabase: {e}"
+
+    # SQLite mode
+    success = get_local_db().toggle_journey_event_inclusion(event_id, aspirant_id, included)
+    if success:
+        return True, None
+    return False, "Failed to update journey event in local database."
 
 def add_manual_aspirant_entry(
     aspirant_id: str,
@@ -84,11 +238,14 @@ def add_manual_aspirant_entry(
         "category": category.strip()
     }
 
-    # 1. Supabase sync
-    client = get_supabase_client()
-    if client:
+    backend = get_data_backend()
+
+    if backend == "supabase":
+        client = _get_user_client()
+        if not client:
+            return None, "Supabase client not available."
         try:
-            client.table("journey_events").insert({
+            res = client.table("journey_events").insert({
                 "journey_id": j["id"],
                 "aspirant_id": aspirant_id,
                 "actor_id": aspirant_id,
@@ -97,10 +254,36 @@ def add_manual_aspirant_entry(
                 "event_data": event_payload,
                 "event_date": date_str
             }).execute()
-        except Exception:
-            pass
+            if res.data and len(res.data) > 0:
+                ev = res.data[0]
+                ev["title"] = title.strip()
+                ev["description"] = description.strip()
+                return ev, None
+            return {"id": str(uuid.uuid4()), "title": title, "description": description}, None
+        except Exception as e:
+            admin = _get_admin_client()
+            if admin:
+                try:
+                    res = admin.table("journey_events").insert({
+                        "journey_id": j["id"],
+                        "aspirant_id": aspirant_id,
+                        "actor_id": aspirant_id,
+                        "actor_role": "aspirant",
+                        "event_type": "aspirant_milestone",
+                        "event_data": event_payload,
+                        "event_date": date_str
+                    }).execute()
+                    if res.data and len(res.data) > 0:
+                        ev = res.data[0]
+                        ev["title"] = title.strip()
+                        ev["description"] = description.strip()
+                        return ev, None
+                    return {"id": str(uuid.uuid4()), "title": title, "description": description}, None
+                except Exception as ex2:
+                    return None, f"Failed to record journey event in Supabase: {ex2}"
+            return None, f"Failed to record journey event in Supabase: {e}"
 
-    # 2. Local DB
+    # SQLite mode
     ev = get_local_db().add_journey_event(
         journey_id=j["id"],
         aspirant_id=aspirant_id,
@@ -110,7 +293,6 @@ def add_manual_aspirant_entry(
         event_data=event_payload,
         event_date=date_str
     )
-
     return ev, None
 
 def add_guide_contribution(
@@ -134,11 +316,14 @@ def add_guide_contribution(
         "topic": topic.strip()
     }
 
-    # Supabase sync
-    client = get_supabase_client()
-    if client:
+    backend = get_data_backend()
+
+    if backend == "supabase":
+        client = _get_user_client()
+        if not client:
+            return None, "Supabase client not available."
         try:
-            client.table("journey_events").insert({
+            res = client.table("journey_events").insert({
                 "journey_id": j["id"],
                 "aspirant_id": aspirant_id,
                 "actor_id": guide_id,
@@ -147,15 +332,100 @@ def add_guide_contribution(
                 "event_data": event_payload,
                 "event_date": date_str
             }).execute()
-        except Exception:
-            pass
+            if res.data and len(res.data) > 0:
+                ev = res.data[0]
+                ev["title"] = title.strip()
+                ev["description"] = description.strip()
+                return ev, None
+            return {"id": str(uuid.uuid4()), "title": title, "description": description}, None
+        except Exception as e:
+            admin = _get_admin_client()
+            if admin:
+                try:
+                    res = admin.table("journey_events").insert({
+                        "journey_id": j["id"],
+                        "aspirant_id": aspirant_id,
+                        "actor_id": guide_id,
+                        "actor_role": "guide",
+                        "event_type": "guide_support",
+                        "event_data": event_payload,
+                        "event_date": date_str
+                    }).execute()
+                    if res.data and len(res.data) > 0:
+                        ev = res.data[0]
+                        ev["title"] = title.strip()
+                        ev["description"] = description.strip()
+                        return ev, None
+                    return {"id": str(uuid.uuid4()), "title": title, "description": description}, None
+                except Exception as ex2:
+                    return None, f"Failed to record Guide contribution in Supabase: {ex2}"
+            return None, f"Failed to record Guide contribution in Supabase: {e}"
 
+    # SQLite mode
     ev = get_local_db().add_journey_event(
         journey_id=j["id"],
         aspirant_id=aspirant_id,
         actor_id=guide_id,
         actor_role="guide",
         event_type="guide_support",
+        event_data=event_payload,
+        event_date=date_str
+    )
+    return ev, None
+
+def add_admin_journey_entry(
+    aspirant_id: str,
+    admin_id: str,
+    title: str,
+    description: str,
+    category: str = "Administrative Directive",
+    event_date: Optional[str] = None
+) -> Tuple[Optional[Dict], Optional[str]]:
+    """Administrator logs an official milestone, grant sanction, or administrative directive to an Aspirant's Journey."""
+    if not title or not description:
+        return None, "Title and description are required."
+
+    j = get_or_create_journey(aspirant_id)
+    date_str = event_date or datetime.now(timezone.utc).isoformat()
+
+    event_payload = {
+        "title": title.strip(),
+        "description": description.strip(),
+        "category": category.strip()
+    }
+
+    backend = get_data_backend()
+
+    if backend == "supabase":
+        client = _get_admin_client() or _get_user_client()
+        if not client:
+            return None, "Supabase client not available."
+        try:
+            res = client.table("journey_events").insert({
+                "journey_id": j["id"],
+                "aspirant_id": aspirant_id,
+                "actor_id": admin_id,
+                "actor_role": "admin",
+                "event_type": "admin_directive",
+                "event_data": event_payload,
+                "event_date": date_str
+            }).execute()
+            if res.data and len(res.data) > 0:
+                ev = res.data[0]
+                ev["title"] = title.strip()
+                ev["description"] = description.strip()
+                return ev, None
+            return {"id": str(uuid.uuid4()), "title": title, "description": description}, None
+        except Exception as e:
+            return None, f"Failed to record Admin entry in Supabase: {e}"
+
+    # SQLite mode
+    ev = get_local_db().add_journey_event(
+        journey_id=j["id"],
+        aspirant_id=aspirant_id,
+        actor_id=admin_id,
+        actor_role="admin",
+        event_type="admin_directive",
         event_data=event_payload,
         event_date=date_str
     )
@@ -182,11 +452,14 @@ def add_sme_contribution(
         "domain": domain.strip()
     }
 
-    # Supabase sync
-    client = get_supabase_client()
-    if client:
+    backend = get_data_backend()
+
+    if backend == "supabase":
+        client = _get_user_client()
+        if not client:
+            return None, "Supabase client not available."
         try:
-            client.table("journey_events").insert({
+            res = client.table("journey_events").insert({
                 "journey_id": j["id"],
                 "aspirant_id": aspirant_id,
                 "actor_id": sme_id,
@@ -195,9 +468,16 @@ def add_sme_contribution(
                 "event_data": event_payload,
                 "event_date": date_str
             }).execute()
-        except Exception:
-            pass
+            if res.data and len(res.data) > 0:
+                ev = res.data[0]
+                ev["title"] = title.strip()
+                ev["description"] = description.strip()
+                return ev, None
+            return {"id": str(uuid.uuid4()), "title": title, "description": description}, None
+        except Exception as e:
+            return None, f"Failed to record SME contribution in Supabase: {e}"
 
+    # SQLite mode
     ev = get_local_db().add_journey_event(
         journey_id=j["id"],
         aspirant_id=aspirant_id,
@@ -220,7 +500,7 @@ def log_meaningful_event(
     event_date: Optional[str] = None
 ):
     """
-    Automated helper to record significant milestones:
+    Automated helper to record significant milestones in active backend:
     - Profile updated
     - Guide assigned
     - SME assigned
@@ -236,33 +516,59 @@ def log_meaningful_event(
         **(metadata or {})
     }
 
-    client = get_supabase_client()
-    if client:
-        try:
-            client.table("journey_events").insert({
-                "journey_id": j["id"],
-                "aspirant_id": aspirant_id,
-                "actor_id": actor_id,
-                "actor_role": actor_role,
-                "event_type": event_type,
-                "event_data": payload,
-                "event_date": date_str
-            }).execute()
-        except Exception:
-            pass
+    backend = get_data_backend()
 
-    get_local_db().add_journey_event(
-        journey_id=j["id"],
-        aspirant_id=aspirant_id,
-        actor_id=actor_id,
-        actor_role=actor_role,
-        event_type=event_type,
-        event_data=payload,
-        event_date=date_str
-    )
+    if backend == "supabase":
+        client = _get_admin_client()
+        if client:
+            try:
+                client.table("journey_events").insert({
+                    "journey_id": j["id"],
+                    "aspirant_id": aspirant_id,
+                    "actor_id": actor_id,
+                    "actor_role": actor_role,
+                    "event_type": event_type,
+                    "event_data": payload,
+                    "event_date": date_str
+                }).execute()
+            except Exception as e:
+                print(f"[Journey] log_meaningful_event Supabase error: {e}")
+    else:
+        # SQLite mode
+        get_local_db().add_journey_event(
+            journey_id=j["id"],
+            aspirant_id=aspirant_id,
+            actor_id=actor_id,
+            actor_role=actor_role,
+            event_type=event_type,
+            event_data=payload,
+            event_date=date_str
+        )
 
 def soft_delete_event(event_id: str, user_id: str, user_role: str) -> Tuple[bool, Optional[str]]:
-    """Enforces soft deletion permissions."""
+    """Enforces soft deletion permissions in active backend."""
+    backend = get_data_backend()
+
+    if backend == "supabase":
+        client = _get_user_client()
+        if not client:
+            return False, "Supabase client not available."
+        try:
+            res = client.table("journey_events").select("*").eq("id", event_id).execute()
+            if not res.data or len(res.data) == 0:
+                return False, "Event record not found."
+            event = res.data[0]
+            if user_role != "admin" and str(event["actor_id"]) != str(user_id):
+                return False, "Permission denied: You can only delete your own journey contributions."
+            client.table("journey_events").update({
+                "deleted_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_by": user_id
+            }).eq("id", event_id).execute()
+            return True, None
+        except Exception as e:
+            return False, f"Failed to delete event: {e}"
+
+    # SQLite mode
     local_db = get_local_db()
     conn = local_db._get_conn()
     cur = conn.cursor()
@@ -274,20 +580,8 @@ def soft_delete_event(event_id: str, user_id: str, user_role: str) -> Tuple[bool
         return False, "Event record not found."
 
     event = dict(row)
-    # Check permissions
     if user_role != "admin" and event["actor_id"] != user_id:
         return False, "Permission denied: You can only delete your own journey contributions."
-
-    # Soft delete in Supabase
-    client = get_supabase_client()
-    if client:
-        try:
-            client.table("journey_events").update({
-                "deleted_at": datetime.now(timezone.utc).isoformat(),
-                "deleted_by": user_id
-            }).eq("id", event_id).execute()
-        except Exception:
-            pass
 
     success = local_db.soft_delete_journey_event(event_id, user_id)
     return success, None

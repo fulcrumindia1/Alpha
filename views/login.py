@@ -12,7 +12,14 @@ Design Guidelines:
 """
 
 import streamlit as st
-from services.auth import login_user, signup_aspirant
+from services.auth import (
+    login_user,
+    signup_aspirant,
+    send_password_reset,
+    complete_password_reset,
+    get_data_backend
+)
+from services.constants import MASTER_DISTRICTS_TN
 
 def render_login_page():
     # Inject Institutional Light Theme CSS specifically for the login surface
@@ -231,6 +238,44 @@ def render_login_page():
     </style>
     """, unsafe_allow_html=True)
 
+    import streamlit.components.v1 as components
+
+    # Client-side hash bridge: converts Supabase email links like #access_token=...&type=recovery into Streamlit ?access_token=...&type=recovery
+    components.html("""
+    <script>
+    (function() {
+        try {
+            const topLoc = window.parent.location;
+            if (topLoc.hash && topLoc.hash.length > 1) {
+                const hash = topLoc.hash.substring(1);
+                const params = new URLSearchParams(hash);
+                if (params.get('type') || params.get('access_token')) {
+                    const url = new URL(topLoc.href);
+                    url.search = '?' + hash;
+                    url.hash = '';
+                    topLoc.replace(url.toString());
+                }
+            }
+        } catch(e) {
+            console.error("Hash bridge error:", e);
+        }
+    })();
+    </script>
+    """, height=0, width=0)
+
+    # Check query parameters for email confirmation or password recovery
+    query_params = st.query_params
+    auth_type = query_params.get("type", "")
+    acc_token = query_params.get("access_token", "")
+    ref_token = query_params.get("refresh_token", "")
+
+    if acc_token:
+        st.session_state.sb_access_token = acc_token
+    if ref_token:
+        st.session_state.sb_refresh_token = ref_token
+
+    error_desc = query_params.get("error_description") or query_params.get("error")
+
     # Centered Container Layout
     col_l, col_center, col_r = st.columns([1, 1.4, 1])
 
@@ -244,6 +289,51 @@ def render_login_page():
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+        if error_desc:
+            st.error(f"Authentication notice: {error_desc}")
+
+        if auth_type in ["signup", "email_verification"]:
+            st.success("✅ Email confirmed successfully. Please sign in with your email and password.")
+
+        # PASSWORD RECOVERY FLOW
+        is_recovery = (auth_type == "recovery") or (bool(acc_token) and auth_type != "signup") or st.session_state.get("show_recovery_form", False)
+
+        if is_recovery:
+            st.markdown("""
+            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:10px; padding:1.5rem; margin-bottom:1.5rem; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+                <h3 style="margin-top:0; color:#0F172A; font-size:1.2rem;">Set New Password</h3>
+                <p style="font-size:0.84rem; color:#64748B;">Enter a secure new password for your verified account.</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            with st.form("form_set_new_password"):
+                new_p1 = st.text_input("New Password", type="password", placeholder="••••••••", key="rec_pwd1")
+                new_p2 = st.text_input("Confirm New Password", type="password", placeholder="••••••••", key="rec_pwd2")
+                submit_recovery = st.form_submit_button("UPDATE PASSWORD", use_container_width=True)
+
+                if submit_recovery:
+                    if not new_p1 or not new_p2:
+                        st.error("Please enter and confirm your new password.")
+                    elif new_p1 != new_p2:
+                        st.error("Passwords do not match.")
+                    elif len(new_p1) < 6:
+                        st.error("Password must be at least 6 characters long.")
+                    else:
+                        ok, err = complete_password_reset(new_p1, access_token=acc_token, refresh_token=ref_token)
+                        if ok:
+                            st.success("🎉 Password updated successfully! Please sign in with your new password.")
+                            st.session_state.show_recovery_form = False
+                            st.query_params.clear()
+                        else:
+                            st.error(err or "Failed to update password.")
+
+            if st.button("← Back to Sign In", key="btn_cancel_recovery"):
+                st.session_state.show_recovery_form = False
+                st.query_params.clear()
+                st.rerun()
+
+            return
 
         tab_login, tab_signup = st.tabs(["Sign In", "Create Aspirant Account"])
 
@@ -278,6 +368,29 @@ def render_login_page():
                     else:
                         st.warning("Please enter your email and password.")
 
+            # Password Reset Expander
+            backend = get_data_backend()
+            with st.expander("🔑 Forgot Password?", expanded=False):
+                if backend == "supabase":
+                    st.markdown("<p style='font-size:0.8rem; color:#64748B;'>Enter your registered email address to receive a secure password recovery link.</p>", unsafe_allow_html=True)
+                    col_fp1, col_fp2 = st.columns([2, 1])
+                    with col_fp1:
+                        fp_email = st.text_input("Registered Email", placeholder="name@domain.in", key="input_fp_email")
+                    with col_fp2:
+                        st.write("")
+                        st.write("")
+                        if st.button("Send Reset Link", key="btn_send_fp"):
+                            if fp_email:
+                                ok, err = send_password_reset(fp_email)
+                                if ok:
+                                    st.success("Password reset email sent! Check your inbox for the reset link.")
+                                else:
+                                    st.error(err or "Failed to send reset email.")
+                            else:
+                                st.warning("Please enter your email.")
+                else:
+                    st.info("In local development mode (SQLite), password resets via email are disabled. Please use the verified demo test accounts below or contact admin@fulcrum.in.")
+
             # Clear Credentials Reference Box
             st.markdown("""
             <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 0.85rem 1rem; margin-top: 1.5rem; font-size: 0.8rem;">
@@ -293,9 +406,6 @@ def render_login_page():
             </div>
 
             <div style="text-align: center; margin-top: 1.25rem; font-size: 0.82rem; color: #64748B;">
-                <div style="margin-bottom: 0.5rem;">
-                    Forgot Password? Contact your administrator at <span style="font-weight: 600; color: #334155;">admin@fulcrum.in</span>
-                </div>
                 <div style="color: #94A3B8; font-size: 0.76rem;">
                     Authorized access only · Aspirants, Guides, SMEs & Program Administrators
                 </div>
@@ -315,16 +425,12 @@ def render_login_page():
             with c_ph:
                 s_phone = st.text_input("Mobile Number", placeholder="9876543210", key="signup_phone")
             with c_dist:
-                s_dist = st.selectbox("District (Tamil Nadu)", [
-                    "Madurai", "Chennai", "Coimbatore", "Tiruchirappalli", "Salem",
-                    "Tirunelveli", "Erode", "Vellore", "Thoothukudi", "Dindigul",
-                    "Thanjavur", "Ranipet", "Virudhunagar", "Karur", "Other"
-                ], key="signup_district")
+                s_dist = st.selectbox("District (Tamil Nadu)", MASTER_DISTRICTS_TN, index=13, key="signup_district")
 
             # If "Other" is selected, show a text input to specify the actual district/city/state
             s_final_district = s_dist
-            if s_dist == "Other":
-                s_other_dist = st.text_input("Specify District / City / State *", placeholder="e.g. Kanyakumari, Namakkal, Bengaluru (Karnataka)", key="signup_other_district")
+            if s_dist == "Other District / Non-TN (Specify)":
+                s_other_dist = st.text_input("Specify District / City / State *", placeholder="e.g. Bengaluru (Karnataka), Mumbai (Maharashtra)", key="signup_other_district")
                 if s_other_dist and s_other_dist.strip():
                     s_final_district = s_other_dist.strip()
 
@@ -342,7 +448,7 @@ def render_login_page():
                     st.error("Passwords do not match.")
                 elif len(s_pwd) < 6:
                     st.error("Password must be at least 6 characters long.")
-                elif s_dist == "Other" and not s_other_dist.strip():
+                elif s_dist == "Other District / Non-TN (Specify)" and not s_other_dist.strip():
                     st.error("Please specify your district / city / state.")
                 else:
                     profile, err = signup_aspirant(
@@ -353,7 +459,11 @@ def render_login_page():
                         district=s_final_district
                     )
                     if profile:
-                        st.rerun()
+                        if profile.get("pending_confirmation"):
+                            st.success(f"🎉 Account created successfully for **{s_email}**! A confirmation link has been sent to your email. Please check your inbox and verify your email before signing in.")
+                        else:
+                            st.success("🎉 Account created successfully! Logging in...")
+                            st.rerun()
                     else:
                         st.error(err or "Failed to create account. Email may already be in use.")
 
