@@ -29,39 +29,71 @@ def create_request(
     message: str,
     priority: str = "MEDIUM",
     category: str = "GENERAL",
-    target_role: str = "guide"
+    target_role: str = "guide",
+    target_mentor_id: Optional[str] = None,
+    category_detail: Optional[str] = None
 ) -> Tuple[Optional[Dict], Optional[str]]:
-    """Aspirant submits a support/help request. Automatically routes to assigned Guide and/or SME."""
+    """Aspirant submits a support/help request. Automatically routes to targeted or assigned Guide/SME."""
     if not subject or not message:
         return None, "Subject and message are required."
 
     # Look up assigned mentors
     assigned_guide_id = None
     assigned_sme_id = None
+    all_smes = []
     try:
         from services.relationships import get_aspirant_mentors
         mentors = get_aspirant_mentors(aspirant_id)
         guide = mentors.get("guide")
-        sme = mentors.get("sme")
+        all_smes = mentors.get("smes", [])
+        if not all_smes and mentors.get("sme"):
+            all_smes = [mentors.get("sme")]
         if guide and guide.get("id"):
             assigned_guide_id = guide["id"]
-        if sme and sme.get("id"):
-            assigned_sme_id = sme["id"]
+        if all_smes:
+            assigned_sme_id = all_smes[0]["id"]
     except Exception:
         pass
 
-    # Domain category routing
-    is_sme_domain = category in ("GST_TAXATION", "LEGAL_COMPLIANCE", "FSSAI_FOOD", "PATENTS_IPR")
-    if is_sme_domain or target_role == "sme":
-        target_role = "sme"
-    elif target_role not in ("guide", "sme", "both"):
-        target_role = "guide"
+    # Targeted mentor routing
+    if target_mentor_id:
+        matching_sme = next((s for s in all_smes if s.get("id") == target_mentor_id), None)
+        if matching_sme:
+            target_role = "sme"
+            actual_guide_id = None
+            actual_sme_id = target_mentor_id
+        elif assigned_guide_id and target_mentor_id == assigned_guide_id:
+            target_role = "guide"
+            actual_guide_id = target_mentor_id
+            actual_sme_id = None
+        else:
+            if target_role == "sme":
+                actual_guide_id = None
+                actual_sme_id = target_mentor_id
+            else:
+                target_role = "guide"
+                actual_guide_id = target_mentor_id
+                actual_sme_id = None
+    else:
+        # Fallback category-based routing
+        is_sme_domain = category in ("GST_TAXATION", "LEGAL_COMPLIANCE", "FSSAI_FOOD", "PATENTS_IPR")
+        if is_sme_domain or target_role == "sme":
+            target_role = "sme"
+            actual_guide_id = None
+            actual_sme_id = assigned_sme_id
+        elif target_role == "both":
+            actual_guide_id = assigned_guide_id
+            actual_sme_id = assigned_sme_id
+        else:
+            target_role = "guide"
+            actual_guide_id = assigned_guide_id
+            actual_sme_id = None
 
     backend = get_data_backend()
     now_iso = datetime.now(timezone.utc).isoformat()
     req_id = str(uuid.uuid4())
-
-    target_mentor_id = assigned_sme_id if (target_role == "sme" and assigned_sme_id) else assigned_guide_id
+    assigned_at = now_iso if (actual_guide_id or actual_sme_id) else None
+    clean_cat_detail = category_detail.strip() if category_detail else None
 
     if backend == "supabase":
         client = _get_user_client() or _get_admin_client()
@@ -74,8 +106,13 @@ def create_request(
             "message": message.strip(),
             "priority": priority,
             "status": "OPEN",
-            "assigned_guide_id": target_mentor_id,
-            "assigned_at": now_iso if target_mentor_id else None,
+            "assigned_guide_id": actual_guide_id,
+            "assigned_sme_id": actual_sme_id,
+            "category": category,
+            "category_detail": clean_cat_detail,
+            "target_role": target_role,
+            "request_type": "aspirant_consultation",
+            "assigned_at": assigned_at,
             "created_at": now_iso,
             "updated_at": now_iso
         }
@@ -89,9 +126,26 @@ def create_request(
                     res = admin_client.table("help_requests").insert(req_data).execute()
                     req = res.data[0] if (res.data and len(res.data) > 0) else req_data
                 except Exception as e2:
-                    return None, f"Failed to submit help request to Supabase: {e2}"
+                    # If category_detail column is missing, retry without it
+                    if "category_detail" in str(e2):
+                        req_data.pop("category_detail", None)
+                        try:
+                            res = admin_client.table("help_requests").insert(req_data).execute()
+                            req = res.data[0] if (res.data and len(res.data) > 0) else req_data
+                        except Exception as e3:
+                            return None, f"Failed to submit help request to Supabase: {e3}"
+                    else:
+                        return None, f"Failed to submit help request to Supabase: {e2}"
             else:
-                return None, f"Failed to submit help request to Supabase: {e}"
+                if "category_detail" in str(e):
+                    req_data.pop("category_detail", None)
+                    try:
+                        res = client.table("help_requests").insert(req_data).execute()
+                        req = res.data[0] if (res.data and len(res.data) > 0) else req_data
+                    except Exception as e3:
+                        return None, f"Failed to submit help request to Supabase: {e3}"
+                else:
+                    return None, f"Failed to submit help request to Supabase: {e}"
     else:
         # SQLite mode
         local_db = get_local_db()
@@ -100,31 +154,33 @@ def create_request(
             subject=subject.strip(),
             message=message.strip(),
             priority=priority,
-            assigned_guide_id=assigned_guide_id,
+            assigned_guide_id=actual_guide_id,
             category=category,
-            assigned_sme_id=assigned_sme_id,
+            category_detail=clean_cat_detail,
+            assigned_sme_id=actual_sme_id,
             target_role=target_role
         )
 
-    # Dispatch In-App Notifications to Mentor(s)
+    # Dispatch In-App Notifications strictly to the targeted Mentor
     from services.notifications import create_notification
     from services.profiles import get_profile
     asp_p = get_profile(aspirant_id)
     asp_name = asp_p.get("full_name") if asp_p else "An Entrepreneur"
+    cat_label = clean_cat_detail if (category == "OTHERS" and clean_cat_detail) else category.replace("_", " ")
 
-    if target_role in ("sme", "both") and assigned_sme_id:
+    if target_role in ("sme", "both") and actual_sme_id:
         create_notification(
-            user_id=assigned_sme_id,
+            user_id=actual_sme_id,
             title=f"New Domain Advisory Request: {subject.strip()}",
-            message=f"{asp_name} requested expert support for {category} (Priority: {priority}).",
+            message=f"{asp_name} requested expert support for {cat_label} (Priority: {priority}).",
             notification_type="help_ticket_created",
             actor_id=aspirant_id
         )
-    if target_role in ("guide", "both") and assigned_guide_id:
+    if target_role in ("guide", "both") and actual_guide_id:
         create_notification(
-            user_id=assigned_guide_id,
+            user_id=actual_guide_id,
             title=f"New Help Ticket: {subject.strip()}",
-            message=f"{asp_name} submitted a support request (Priority: {priority}).",
+            message=f"{asp_name} submitted a support request for {cat_label} (Priority: {priority}).",
             notification_type="help_ticket_created",
             actor_id=aspirant_id
         )
@@ -146,6 +202,8 @@ def list_requests(aspirant_id: Optional[str] = None) -> List[Dict]:
                 res = q.order("created_at", desc=True).execute()
                 rows = []
                 for r in (res.data or []):
+                    if r.get("request_type") == "mentor_admin_query":
+                        continue
                     p = r.get("profiles") or {}
                     r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                     r["aspirant_email"] = p.get("email") or ""
@@ -161,6 +219,8 @@ def list_requests(aspirant_id: Optional[str] = None) -> List[Dict]:
                     res_admin = q_admin.order("created_at", desc=True).execute()
                     rows_admin = []
                     for r in (res_admin.data or []):
+                        if r.get("request_type") == "mentor_admin_query":
+                            continue
                         p = r.get("profiles") or {}
                         r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                         r["aspirant_email"] = p.get("email") or ""
@@ -178,6 +238,8 @@ def list_requests(aspirant_id: Optional[str] = None) -> List[Dict]:
                         res = q.order("created_at", desc=True).execute()
                         rows = []
                         for r in (res.data or []):
+                            if r.get("request_type") == "mentor_admin_query":
+                                continue
                             p = r.get("profiles") or {}
                             r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                             r["aspirant_email"] = p.get("email") or ""
@@ -206,6 +268,8 @@ def list_guide_requests(guide_id: str) -> List[Dict]:
                     .execute()
                 rows = []
                 for r in (res.data or []):
+                    if r.get("request_type") == "mentor_admin_query":
+                        continue
                     p = r.get("profiles") or {}
                     r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                     r["aspirant_email"] = p.get("email") or ""
@@ -221,6 +285,8 @@ def list_guide_requests(guide_id: str) -> List[Dict]:
                         .execute()
                     rows_admin = []
                     for r in (res_admin.data or []):
+                        if r.get("request_type") == "mentor_admin_query":
+                            continue
                         p = r.get("profiles") or {}
                         r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                         r["aspirant_email"] = p.get("email") or ""
@@ -238,6 +304,8 @@ def list_guide_requests(guide_id: str) -> List[Dict]:
                             .execute()
                         rows = []
                         for r in (res.data or []):
+                            if r.get("request_type") == "mentor_admin_query":
+                                continue
                             p = r.get("profiles") or {}
                             r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                             r["aspirant_email"] = p.get("email") or ""
@@ -341,7 +409,8 @@ def list_sme_requests(sme_id: str) -> List[Dict]:
             try:
                 res = client.table("help_requests")\
                     .select("*, profiles:aspirant_id(full_name, email)")\
-                    .eq("assigned_guide_id", sme_id)\
+                    .eq("assigned_sme_id", sme_id)\
+                    .neq("request_type", "mentor_admin_query")\
                     .order("created_at", desc=True)\
                     .execute()
                 rows = []
@@ -350,8 +419,43 @@ def list_sme_requests(sme_id: str) -> List[Dict]:
                     r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                     r["aspirant_email"] = p.get("email") or ""
                     rows.append(r)
+                if rows:
+                    return rows
+                admin_client = _get_admin_client()
+                if admin_client and admin_client != client:
+                    res_admin = admin_client.table("help_requests")\
+                        .select("*, profiles:aspirant_id(full_name, email)")\
+                        .eq("assigned_sme_id", sme_id)\
+                        .neq("request_type", "mentor_admin_query")\
+                        .order("created_at", desc=True)\
+                        .execute()
+                    rows_admin = []
+                    for r in (res_admin.data or []):
+                        p = r.get("profiles") or {}
+                        r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
+                        r["aspirant_email"] = p.get("email") or ""
+                        rows_admin.append(r)
+                    return rows_admin
                 return rows
             except Exception as e:
+                admin_client = _get_admin_client()
+                if admin_client and admin_client != client:
+                    try:
+                        res = admin_client.table("help_requests")\
+                            .select("*, profiles:aspirant_id(full_name, email)")\
+                            .eq("assigned_sme_id", sme_id)\
+                            .neq("request_type", "mentor_admin_query")\
+                            .order("created_at", desc=True)\
+                            .execute()
+                        rows = []
+                        for r in (res.data or []):
+                            p = r.get("profiles") or {}
+                            r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
+                            r["aspirant_email"] = p.get("email") or ""
+                            rows.append(r)
+                        return rows
+                    except Exception as e2:
+                        print(f"[HelpRequests] Admin fallback error: {e2}")
                 print(f"[HelpRequests] Supabase list_sme_requests error: {e}")
                 return []
         return []
@@ -394,7 +498,7 @@ def sme_respond_request(request_id: str, sme_id: str, arg3: str, arg4: Optional[
 
             update_payload = {
                 "status": new_status,
-                "guide_response": response.strip(),
+                "sme_response": response.strip(),
                 "responded_by": sme_id,
                 "last_handled_at": now_iso,
                 "updated_at": now_iso
@@ -505,33 +609,262 @@ def resolve_request(request_id: str, new_status: str, admin_response: str, admin
     return True, None
 
 def check_and_escalate_overdue_requests() -> int:
-    """Auto-escalates unresolved tickets older than 7 days to 'ESCALATED'."""
+    """
+    Auto-escalation disabled.
+    Under the 2-tier governance architecture, the Administrator is completely invisible to the Aspirant.
+    Only Guides and Domain SMEs can escalate institutional roadblocks to the Administration on behalf of an Aspirant.
+    """
+    return 0
+
+def create_mentor_admin_query(
+    mentor_id: str,
+    mentor_role: str,
+    aspirant_id: str,
+    subject: str,
+    message: str,
+    priority: str = "MEDIUM"
+) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Mentor (Guide or Domain SME) submits an institutional query / roadblock
+    to the Directorate on behalf of a specific mentee (Aspirant).
+    The Aspirant is never aware of this query.
+    """
+    if not subject or not message:
+        return None, "Subject and description of roadblock are required."
+
+    backend = get_data_backend()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    req_id = str(uuid.uuid4())
+
+    if backend == "supabase":
+        client = _get_admin_client() or _get_user_client()
+        if not client:
+            return None, "Database client unavailable."
+        req_data = {
+            "id": req_id,
+            "aspirant_id": aspirant_id,
+            "subject": subject.strip(),
+            "message": message.strip(),
+            "priority": priority,
+            "status": "PENDING_ADMIN",
+            "requester_id": mentor_id,
+            "requester_role": mentor_role,
+            "request_type": "mentor_admin_query",
+            "created_at": now_iso,
+            "updated_at": now_iso
+        }
+        try:
+            res = client.table("help_requests").insert(req_data).execute()
+            req = res.data[0] if (res.data and len(res.data) > 0) else req_data
+        except Exception as e:
+            admin_client = _get_admin_client()
+            inserted = False
+            if admin_client and admin_client != client:
+                try:
+                    res = admin_client.table("help_requests").insert(req_data).execute()
+                    req = res.data[0] if (res.data and len(res.data) > 0) else req_data
+                    inserted = True
+                except Exception:
+                    pass
+            if not inserted:
+                print(f"[HelpRequests] Supabase insert note ({e}), saving to local fallback db")
+                local_db = get_local_db()
+                req = local_db.create_mentor_admin_query(
+                    mentor_id=mentor_id,
+                    mentor_role=mentor_role,
+                    aspirant_id=aspirant_id,
+                    subject=subject.strip(),
+                    message=message.strip(),
+                    priority=priority
+                )
+    else:
+        local_db = get_local_db()
+        req = local_db.create_mentor_admin_query(
+            mentor_id=mentor_id,
+            mentor_role=mentor_role,
+            aspirant_id=aspirant_id,
+            subject=subject.strip(),
+            message=message.strip(),
+            priority=priority
+        )
+
+    # Dispatch In-App Notification to Admins
+    try:
+        from services.notifications import create_notification
+        from services.profiles import get_profile, list_profiles_by_role
+        asp_p = get_profile(aspirant_id)
+        asp_name = asp_p.get("full_name") if asp_p else "Entrepreneur"
+        admins = list_profiles_by_role("admin")
+        for adm in (admins or []):
+            create_notification(
+                user_id=adm["id"],
+                title=f"New Mentor Inquiry ({mentor_role.upper()}): {subject.strip()}",
+                message=f"A mentor requested institutional directive on behalf of {asp_name}.",
+                notification_type="admin_directive_needed",
+                actor_id=mentor_id
+            )
+    except Exception as ne:
+        print(f"[HelpRequests] Admin notification warning: {ne}")
+
+    return req, None
+
+def list_mentor_admin_queries(
+    mentor_id: Optional[str] = None,
+    aspirant_id: Optional[str] = None
+) -> List[Dict]:
+    """
+    Retrieves institutional queries submitted by mentors (Guides/SMEs) to Admin.
+    Can be filtered by mentor_id, aspirant_id, or listed globally for Admin.
+    """
     backend = get_data_backend()
 
     if backend == "supabase":
-        client = get_supabase_admin_client() or get_supabase_client()
+        client = _get_admin_client() or _get_user_client()
         if client:
             try:
-                # First try the stored procedure
-                rpc_res = client.rpc("escalate_overdue_help_requests").execute()
-                if rpc_res.data is not None:
-                    return int(rpc_res.data)
-            except Exception:
-                pass
-
-            try:
-                # Direct update
-                seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-                res = client.table("help_requests").update({
-                    "status": "ESCALATED",
-                    "escalated_at": datetime.now(timezone.utc).isoformat(),
-                    "escalation_reason": "Automatically escalated after 7 days without resolution.",
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                }).in_("status", ["OPEN", "IN_PROGRESS"]).lte("created_at", seven_days_ago).execute()
-                return len(res.data or [])
+                q = client.table("help_requests")\
+                    .select("*, profiles:aspirant_id(full_name, email), requester:requester_id(full_name, role)")\
+                    .eq("request_type", "mentor_admin_query")
+                if mentor_id:
+                    q = q.eq("requester_id", mentor_id)
+                if aspirant_id:
+                    q = q.eq("aspirant_id", aspirant_id)
+                res = q.order("created_at", desc=True).execute()
+                rows = []
+                for r in (res.data or []):
+                    p = r.get("profiles") or {}
+                    req_p = r.get("requester") or {}
+                    r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
+                    r["aspirant_email"] = p.get("email") or ""
+                    r["requester_name"] = req_p.get("full_name") or "Mentor"
+                    r["requester_role_actual"] = req_p.get("role") or r.get("requester_role", "guide")
+                    rows.append(r)
+                local_rows = get_local_db().list_mentor_admin_queries(mentor_id=mentor_id, aspirant_id=aspirant_id)
+                seen_ids = {r["id"] for r in rows}
+                for lr in local_rows:
+                    if lr["id"] not in seen_ids:
+                        rows.append(lr)
+                if rows:
+                    return rows
             except Exception as e:
-                print(f"[HelpRequests] Supabase auto-escalation error: {e}")
-                return 0
-        return 0
+                print(f"[HelpRequests] Supabase list_mentor_admin_queries error: {e}")
 
-    return get_local_db().auto_escalate_overdue_requests(days=7)
+    local_rows = get_local_db().list_mentor_admin_queries(mentor_id=mentor_id, aspirant_id=aspirant_id)
+    from services.profiles import get_profile
+    for r in local_rows:
+        if not r.get("aspirant_name") and r.get("aspirant_id"):
+            p = get_profile(r["aspirant_id"])
+            if p:
+                r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
+                r["aspirant_email"] = p.get("email") or ""
+        if not r.get("requester_name") and r.get("requester_id"):
+            mp = get_profile(r["requester_id"])
+            if mp:
+                r["requester_name"] = mp.get("full_name") or "Mentor"
+                r["requester_role_actual"] = mp.get("role") or r.get("requester_role", "guide")
+    return local_rows
+
+def admin_respond_to_mentor(
+    query_id: str,
+    admin_id: str,
+    directive: str,
+    new_status: str = "DIRECTIVE_ISSUED",
+    assign_co_guide_id: Optional[str] = None,
+    assign_sme_id: Optional[str] = None
+) -> Tuple[bool, Optional[str]]:
+    """
+    Admin issues an official administrative directive to the requesting mentor (Guide or SME).
+    Admin can also optionally assign Guide B (Co-Guide) or an additional Domain SME.
+    The Aspirant is NEVER notified and NEVER sees the Admin.
+    """
+    if not directive.strip():
+        return False, "Directive text is required."
+
+    backend = get_data_backend()
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    requester_id = None
+    aspirant_id = None
+    subject = "Institutional Roadblock"
+
+    if backend == "supabase":
+        client = _get_admin_client() or _get_user_client()
+        if not client:
+            return False, "Database client unavailable."
+        try:
+            t_res = client.table("help_requests").select("*").eq("id", query_id).execute()
+            if t_res.data and len(t_res.data) > 0:
+                item = t_res.data[0]
+                requester_id = item.get("requester_id")
+                aspirant_id = item.get("aspirant_id")
+                subject = item.get("subject") or subject
+
+            update_payload = {
+                "status": new_status,
+                "admin_directive": directive.strip(),
+                "directive_issued_at": now_iso,
+                "responded_by": admin_id,
+                "resolved_by": admin_id if new_status in ("DIRECTIVE_ISSUED", "RESOLVED") else None,
+                "updated_at": now_iso
+            }
+            client.table("help_requests").update(update_payload).eq("id", query_id).execute()
+        except Exception as e:
+            print(f"[HelpRequests] Supabase admin_respond_to_mentor error: {e}")
+        
+        # Always synchronize directive to local_db as well
+        get_local_db().admin_respond_to_mentor_query(query_id, admin_id, directive.strip(), new_status)
+    else:
+        local_db = get_local_db()
+        conn = local_db._get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT requester_id, aspirant_id, subject FROM help_requests WHERE id = ?", (query_id,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            requester_id = row["requester_id"]
+            aspirant_id = row["aspirant_id"]
+            subject = row["subject"]
+        local_db.admin_respond_to_mentor_query(query_id, admin_id, directive.strip(), new_status)
+
+    if not requester_id or not aspirant_id:
+        conn = get_local_db()._get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT requester_id, aspirant_id, subject FROM help_requests WHERE id = ?", (query_id,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            requester_id = requester_id or row["requester_id"]
+            aspirant_id = aspirant_id or row["aspirant_id"]
+            subject = row["subject"] or subject
+
+    # Assign Co-Guide (Guide B) if specified
+    if assign_co_guide_id and aspirant_id:
+        try:
+            from services.relationships import assign_guide
+            assign_guide(aspirant_id, assign_co_guide_id, admin_id, notes=f"Co-Guide assigned via Admin Directive: {directive.strip()[:60]}", mode="add")
+        except Exception as ge:
+            print(f"[HelpRequests] Co-Guide assignment warning: {ge}")
+
+    # Assign Domain SME if specified
+    if assign_sme_id and aspirant_id:
+        try:
+            from services.relationships import assign_sme
+            assign_sme(aspirant_id, assign_sme_id, admin_id, notes=f"Domain specialist assigned via Admin Directive: {directive.strip()[:60]}", mode="add")
+        except Exception as se:
+            print(f"[HelpRequests] SME assignment warning: {se}")
+
+    # Dispatch notification ONLY to the requesting mentor (NOT the Aspirant)
+    if requester_id:
+        try:
+            from services.notifications import create_notification
+            create_notification(
+                user_id=requester_id,
+                title=f"Administrative Directive Issued: {subject}",
+                message=f"Directorate recorded official directive: '{directive.strip()[:100]}...'",
+                notification_type="admin_directive_issued",
+                actor_id=admin_id
+            )
+        except Exception as ne:
+            print(f"[HelpRequests] Mentor notification warning: {ne}")
+
+    return True, None

@@ -35,15 +35,6 @@ def render_login_page():
     [data-testid="stSidebarNav"] {
         display: none !important;
     }
-    section[data-testid="stSidebar"],
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="collapsedControl"],
-    [data-testid="stExpandSidebarButton"],
-    button[kind="header"] {
-        display: none !important;
-        visibility: hidden !important;
-    }
-
     /* Typography - Avenir Next / Avenir with elegant system fallbacks */
     html, body, .stApp, h1, h2, h3, h4, h5, h6, p, label, input, textarea, select {
         font-family: 'Avenir Next', 'Avenir', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -391,21 +382,8 @@ def render_login_page():
                 else:
                     st.info("In local development mode (SQLite), password resets via email are disabled. Please use the verified demo test accounts below or contact admin@fulcrum.in.")
 
-            # Clear Credentials Reference Box
             st.markdown("""
-            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 0.85rem 1rem; margin-top: 1.5rem; font-size: 0.8rem;">
-                <div style="font-weight: 700; color: #334155; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 6px;">
-                    <span>📋 Verified Test Accounts:</span>
-                </div>
-                <div style="color: #475569; line-height: 1.55;">
-                    <div>• <strong>Admin:</strong> <code style="color:#2563EB;">admin@fulcrum.in</code> | <code>Admin@123</code></div>
-                    <div>• <strong>Aspirant:</strong> <code style="color:#2563EB;">ravi.kumar@milletfoods.in</code> | <code>Aspirant@123</code></div>
-                    <div>• <strong>Guide:</strong> <code style="color:#2563EB;">rajendran@fulcrum.in</code> | <code>Welcome@2026</code></div>
-                    <div>• <strong>SME:</strong> <code style="color:#2563EB;">kumar.sme@fulcrum.in</code> | <code>Welcome@2026</code></div>
-                </div>
-            </div>
-
-            <div style="text-align: center; margin-top: 1.25rem; font-size: 0.82rem; color: #64748B;">
+            <div style="text-align: center; margin-top: 1.5rem; font-size: 0.82rem; color: #64748B;">
                 <div style="color: #94A3B8; font-size: 0.76rem;">
                     Authorized access only · Aspirants, Guides, SMEs & Program Administrators
                 </div>

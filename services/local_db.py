@@ -236,7 +236,7 @@ class LocalDatabase:
             except Exception as e:
                 print(f"[LocalDB] Migration notice: {e}")
 
-        # Dynamic schema migration: ensure sme_ids exists in relationships table
+        # Dynamic schema migration: ensure sme_ids and guide_ids exist in relationships table
         cur.execute("PRAGMA table_info(relationships)")
         rel_cols = [r[1] for r in cur.fetchall()]
         if "sme_ids" not in rel_cols:
@@ -244,7 +244,13 @@ class LocalDatabase:
                 cur.execute("ALTER TABLE relationships ADD COLUMN sme_ids TEXT DEFAULT '[]'")
                 conn.commit()
             except Exception as e:
-                print(f"[LocalDB] Relationships migration notice: {e}")
+                print(f"[LocalDB] Relationships migration notice (sme_ids): {e}")
+        if "guide_ids" not in rel_cols:
+            try:
+                cur.execute("ALTER TABLE relationships ADD COLUMN guide_ids TEXT DEFAULT '[]'")
+                conn.commit()
+            except Exception as e:
+                print(f"[LocalDB] Relationships migration notice (guide_ids): {e}")
 
         # Dynamic schema migration: ensure guide routing & escalation columns exist in help_requests
         cur.execute("PRAGMA table_info(help_requests)")
@@ -281,6 +287,24 @@ class LocalDatabase:
             except Exception: pass
         if "target_role" not in hr_cols:
             try: cur.execute("ALTER TABLE help_requests ADD COLUMN target_role TEXT DEFAULT 'guide'")
+            except Exception: pass
+        if "requester_id" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN requester_id TEXT REFERENCES profiles(id)")
+            except Exception: pass
+        if "requester_role" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN requester_role TEXT DEFAULT 'aspirant'")
+            except Exception: pass
+        if "request_type" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN request_type TEXT DEFAULT 'aspirant_consultation'")
+            except Exception: pass
+        if "category_detail" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN category_detail TEXT")
+            except Exception: pass
+        if "admin_directive" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN admin_directive TEXT")
+            except Exception: pass
+        if "directive_issued_at" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN directive_issued_at TEXT")
             except Exception: pass
         conn.commit()
 
@@ -610,9 +634,9 @@ class LocalDatabase:
         SELECT p.*, r.notes as assignment_notes
         FROM profiles p
         JOIN relationships r ON p.id = r.aspirant_id
-        WHERE r.guide_id = ? AND p.is_active = 1
+        WHERE (r.guide_id = ? OR r.guide_ids LIKE ?) AND p.is_active = 1
         ORDER BY r.created_at DESC
-        """, (guide_id,))
+        """, (guide_id, f'%"{guide_id}"%'))
         rows = cur.fetchall()
         conn.close()
         res = []
@@ -718,16 +742,41 @@ class LocalDatabase:
             res.append(d)
         return res
 
-    def toggle_journey_event_inclusion(self, event_id: str, aspirant_id: str, included: bool) -> bool:
-        """Toggles whether an event is included in the aspirant's journey roadmap."""
+    def toggle_journey_event_inclusion(
+        self,
+        event_id: str,
+        aspirant_id: str,
+        included: bool,
+        actor_id: Optional[str] = None,
+        actor_role: Optional[str] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """Toggles whether an event is included in the aspirant's journey roadmap, verifying ownership and role authorization."""
         conn = self._get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT event_data FROM journey_events WHERE id = ? AND aspirant_id = ?", (event_id, aspirant_id))
+        cur.execute("SELECT event_data, aspirant_id FROM journey_events WHERE id = ?", (event_id,))
         row = cur.fetchone()
         if not row:
             conn.close()
-            return False
+            return False, "Journey event not found."
+
         raw_data = row[0]
+        ev_aspirant_id = row[1]
+
+        # 1. Verify that event belongs to the requested aspirant
+        if not ev_aspirant_id or str(ev_aspirant_id) != str(aspirant_id):
+            conn.close()
+            return False, "Unauthorized: Event does not belong to the specified aspirant."
+
+        # 2. If actor_id is provided, verify it matches the owning aspirant
+        if actor_id and str(actor_id) != str(ev_aspirant_id):
+            conn.close()
+            return False, "Unauthorized: You can only alter roadmap inclusion for your own journey."
+
+        # 3. If actor_role is provided, verify it is 'aspirant'
+        if actor_role and actor_role != "aspirant":
+            conn.close()
+            return False, f"Permission denied: {actor_role.capitalize()}s cannot alter the entrepreneur's personal roadmap inclusion."
+
         try:
             ev_data = json.loads(raw_data) if raw_data else {}
         except Exception:
@@ -742,7 +791,9 @@ class LocalDatabase:
         conn.commit()
         changes = conn.total_changes
         conn.close()
-        return changes > 0
+        if changes > 0:
+            return True, None
+        return False, "Database update produced no changes."
 
     def soft_delete_journey_event(self, event_id: str, deleted_by: str) -> bool:
         conn = self._get_conn()
@@ -768,7 +819,8 @@ class LocalDatabase:
         assigned_guide_id: Optional[str] = None,
         category: str = "GENERAL",
         assigned_sme_id: Optional[str] = None,
-        target_role: str = "guide"
+        target_role: str = "guide",
+        category_detail: Optional[str] = None
     ) -> Dict:
         conn = self._get_conn()
         cur = conn.cursor()
@@ -780,13 +832,13 @@ class LocalDatabase:
         INSERT INTO help_requests (
             id, aspirant_id, subject, message, priority, status,
             assigned_guide_id, assigned_sme_id, category, target_role,
-            assigned_at, created_at, updated_at
+            category_detail, assigned_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             req_id, aspirant_id, subject, message, priority,
             assigned_guide_id, assigned_sme_id, category, target_role,
-            assigned_at, now_iso, now_iso
+            category_detail, assigned_at, now_iso, now_iso
         ))
         conn.commit()
         conn.close()
@@ -800,6 +852,7 @@ class LocalDatabase:
             "assigned_guide_id": assigned_guide_id,
             "assigned_sme_id": assigned_sme_id,
             "category": category,
+            "category_detail": category_detail,
             "target_role": target_role,
             "assigned_at": assigned_at,
             "created_at": now_iso
@@ -821,7 +874,7 @@ class LocalDatabase:
             JOIN profiles p ON h.aspirant_id = p.id
             LEFT JOIN profiles g ON h.assigned_guide_id = g.id
             LEFT JOIN profiles s ON h.assigned_sme_id = s.id
-            WHERE h.aspirant_id = ?
+            WHERE h.aspirant_id = ? AND (h.request_type IS NULL OR h.request_type != 'mentor_admin_query')
             ORDER BY h.created_at DESC
             """, (aspirant_id,))
         elif guide_id:
@@ -832,8 +885,10 @@ class LocalDatabase:
             JOIN profiles p ON h.aspirant_id = p.id
             LEFT JOIN profiles g ON h.assigned_guide_id = g.id
             LEFT JOIN profiles s ON h.assigned_sme_id = s.id
-            WHERE h.assigned_guide_id = ?
-               OR h.aspirant_id IN (SELECT aspirant_id FROM relationships WHERE guide_id = ?)
+            WHERE (h.assigned_guide_id = ?
+               OR (h.assigned_guide_id IS NULL AND h.aspirant_id IN (SELECT aspirant_id FROM relationships WHERE guide_id = ?)))
+               AND (h.target_role IS NULL OR h.target_role != 'sme')
+               AND (h.request_type IS NULL OR h.request_type != 'mentor_admin_query')
             ORDER BY h.created_at DESC
             """, (guide_id, guide_id))
         elif sme_id:
@@ -844,10 +899,12 @@ class LocalDatabase:
             JOIN profiles p ON h.aspirant_id = p.id
             LEFT JOIN profiles g ON h.assigned_guide_id = g.id
             LEFT JOIN profiles s ON h.assigned_sme_id = s.id
-            WHERE h.assigned_sme_id = ?
-               OR h.aspirant_id IN (SELECT aspirant_id FROM relationships WHERE sme_id = ?)
+            WHERE (h.assigned_sme_id = ?
+               OR (h.assigned_sme_id IS NULL AND h.aspirant_id IN (SELECT aspirant_id FROM relationships WHERE sme_id = ?)))
+               AND (h.target_role == 'sme' OR h.assigned_sme_id = ?)
+               AND (h.request_type IS NULL OR h.request_type != 'mentor_admin_query')
             ORDER BY h.created_at DESC
-            """, (sme_id, sme_id))
+            """, (sme_id, sme_id, sme_id))
         else:
             cur.execute("""
             SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email,
@@ -856,6 +913,7 @@ class LocalDatabase:
             JOIN profiles p ON h.aspirant_id = p.id
             LEFT JOIN profiles g ON h.assigned_guide_id = g.id
             LEFT JOIN profiles s ON h.assigned_sme_id = s.id
+            WHERE (h.request_type IS NULL OR h.request_type != 'mentor_admin_query')
             ORDER BY h.created_at DESC
             """)
         rows = cur.fetchall()
@@ -901,6 +959,95 @@ class LocalDatabase:
         SET status = ?, sme_response = ?, last_handled_at = ?, resolved_by = COALESCE(resolved_by, ?), updated_at = ?
         WHERE id = ? AND (assigned_sme_id = ? OR assigned_sme_id IS NULL)
         """, (status, sme_response, now_iso, resolved_by, now_iso, request_id, sme_id))
+        conn.commit()
+        changes = conn.total_changes
+        conn.close()
+        return changes > 0
+
+    def create_mentor_admin_query(
+        self,
+        mentor_id: str,
+        mentor_role: str,
+        aspirant_id: str,
+        subject: str,
+        message: str,
+        priority: str = "MEDIUM"
+    ) -> Dict:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        import uuid
+        req_id = str(uuid.uuid4())
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cur.execute("""
+        INSERT INTO help_requests (
+            id, aspirant_id, subject, message, priority, status,
+            requester_id, requester_role, request_type,
+            created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, 'PENDING_ADMIN', ?, ?, 'mentor_admin_query', ?, ?)
+        """, (
+            req_id, aspirant_id, subject, message, priority,
+            mentor_id, mentor_role, now_iso, now_iso
+        ))
+        conn.commit()
+        conn.close()
+        return {
+            "id": req_id,
+            "aspirant_id": aspirant_id,
+            "subject": subject,
+            "message": message,
+            "priority": priority,
+            "status": "PENDING_ADMIN",
+            "requester_id": mentor_id,
+            "requester_role": mentor_role,
+            "request_type": "mentor_admin_query",
+            "created_at": now_iso
+        }
+
+    def list_mentor_admin_queries(
+        self,
+        mentor_id: Optional[str] = None,
+        aspirant_id: Optional[str] = None
+    ) -> List[Dict]:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        params = []
+        where_clauses = ["h.request_type = 'mentor_admin_query'"]
+        if mentor_id:
+            where_clauses.append("h.requester_id = ?")
+            params.append(mentor_id)
+        if aspirant_id:
+            where_clauses.append("h.aspirant_id = ?")
+            params.append(aspirant_id)
+        where_str = " AND ".join(where_clauses)
+        cur.execute(f"""
+        SELECT h.*, p.full_name as aspirant_name, p.email as aspirant_email,
+               m.full_name as requester_name, m.role as requester_role_actual
+        FROM help_requests h
+        LEFT JOIN profiles p ON h.aspirant_id = p.id
+        LEFT JOIN profiles m ON h.requester_id = m.id
+        WHERE {where_str}
+        ORDER BY h.created_at DESC
+        """, tuple(params))
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def admin_respond_to_mentor_query(
+        self,
+        query_id: str,
+        admin_id: str,
+        directive: str,
+        new_status: str = "DIRECTIVE_ISSUED"
+    ) -> bool:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cur.execute("""
+        UPDATE help_requests
+        SET status = ?, admin_directive = ?, directive_issued_at = ?, responded_by = ?, updated_at = ?
+        WHERE id = ?
+        """, (new_status, directive, now_iso, admin_id, now_iso, query_id))
         conn.commit()
         changes = conn.total_changes
         conn.close()

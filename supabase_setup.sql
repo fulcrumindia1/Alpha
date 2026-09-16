@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS public.relationships (
 );
 
 ALTER TABLE public.relationships ADD COLUMN IF NOT EXISTS sme_ids JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.relationships ADD COLUMN IF NOT EXISTS guide_ids JSONB DEFAULT '[]'::jsonb;
 
 -- ─────────────────────────────────────────────────────────────
 -- 3. JOURNEYS (The Entrepreneur's Movie Header)
@@ -102,9 +103,14 @@ CREATE TABLE IF NOT EXISTS public.help_requests (
     guide_response     TEXT,
     admin_response     TEXT,
     responded_by       UUID REFERENCES public.profiles(id),
+    requester_id       UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    requester_role     TEXT DEFAULT 'aspirant',
+    request_type       TEXT DEFAULT 'aspirant_consultation',
+    admin_directive    TEXT,
+    directive_issued_at TIMESTAMPTZ,
     created_at         TIMESTAMPTZ DEFAULT NOW(),
     updated_at         TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT help_requests_status_check CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'ESCALATED'))
+    CONSTRAINT help_requests_status_check CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'ESCALATED', 'PENDING_ADMIN', 'DIRECTIVE_ISSUED'))
 );
 
 -- Idempotent column additions for existing / partially initialized databases
@@ -122,21 +128,21 @@ ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 
 ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS assigned_sme_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
 ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS sme_response TEXT;
 ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS target_role TEXT DEFAULT 'guide';
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS category_detail TEXT;
+-- Mentor-to-Admin Directives & Inquiries Columns
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS requester_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS requester_role TEXT DEFAULT 'aspirant';
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS request_type TEXT DEFAULT 'aspirant_consultation';
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS admin_directive TEXT;
+ALTER TABLE public.help_requests ADD COLUMN IF NOT EXISTS directive_issued_at TIMESTAMPTZ;
 
--- Idempotent status CHECK constraint update (ensures ESCALATED is included on existing databases)
+-- Idempotent status CHECK constraint update
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conrelid = 'public.help_requests'::regclass
-          AND contype = 'c'
-          AND pg_get_constraintdef(oid) LIKE '%ESCALATED%'
-    ) THEN
-        ALTER TABLE public.help_requests DROP CONSTRAINT IF EXISTS help_requests_status_check;
-        ALTER TABLE public.help_requests
-            ADD CONSTRAINT help_requests_status_check
-            CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'ESCALATED'));
-    END IF;
+    ALTER TABLE public.help_requests DROP CONSTRAINT IF EXISTS help_requests_status_check;
+    ALTER TABLE public.help_requests
+        ADD CONSTRAINT help_requests_status_check
+        CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'ESCALATED', 'PENDING_ADMIN', 'DIRECTIVE_ISSUED'));
 END $$;
 
 -- ─────────────────────────────────────────────────────────────
@@ -480,6 +486,15 @@ CREATE POLICY "Aspirant update own manual journey events" ON public.journey_even
         aspirant_id = auth.uid() AND actor_id = auth.uid() AND actor_role = 'aspirant'
     );
 
+DROP POLICY IF EXISTS "Aspirant toggle roadmap inclusion on own journey events" ON public.journey_events;
+CREATE POLICY "Aspirant toggle roadmap inclusion on own journey events" ON public.journey_events
+    FOR UPDATE TO authenticated USING (
+        aspirant_id = auth.uid()
+    )
+    WITH CHECK (
+        aspirant_id = auth.uid()
+    );
+
 DROP POLICY IF EXISTS "Guide view assigned journey events" ON public.journey_events;
 CREATE POLICY "Guide view assigned journey events" ON public.journey_events
     FOR SELECT TO authenticated USING (
@@ -667,25 +682,12 @@ CREATE POLICY "Aspirants read own assignment_history" ON public.assignment_histo
     FOR SELECT TO authenticated USING (aspirant_id = auth.uid());
 
 -- ─────────────────────────────────────────────────────────────
--- 13. 7-DAY HELP REQUEST AUTO-ESCALATION FUNCTION
 -- ─────────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.escalate_overdue_help_requests()
-RETURNS INTEGER AS $$
-DECLARE
-    updated_count INTEGER;
-BEGIN
-    UPDATE public.help_requests
-    SET status = 'ESCALATED',
-        escalated_at = NOW(),
-        escalation_reason = 'Automatically escalated after 7 days without resolution.',
-        updated_at = NOW()
-    WHERE status IN ('OPEN', 'IN_PROGRESS')
-      AND created_at <= (NOW() - INTERVAL '7 days');
-    
-    GET DIAGNOSTICS updated_count = ROW_COUNT;
-    RETURN updated_count;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- 13. MENTOR DIRECTIVES & TWO-TIER GOVERNANCE
+-- ─────────────────────────────────────────────────────────────
+-- Auto-escalation removed: Aspirants interact solely with Guides & SMEs.
+-- Inquiries to Admin originate strictly from Guides/SMEs on behalf of an Aspirant.
+-- Admin responds with official Administrative Directives to mentors.
 
 -- ─────────────────────────────────────────────────────────────
 -- 14. INITIAL ADMIN SEED HELPER (Execute with your admin email)

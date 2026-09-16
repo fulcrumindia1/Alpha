@@ -171,22 +171,75 @@ def get_journey_timeline(aspirant_id: str) -> List[Dict]:
 def toggle_event_roadmap_inclusion(
     event_id: str,
     aspirant_id: str,
-    included: bool
+    included: bool,
+    actor_id: Optional[str] = None,
+    actor_role: Optional[str] = None
 ) -> Tuple[bool, Optional[str]]:
     """
     Allows an Aspirant to toggle whether a contribution is included in their personal journey roadmap.
+    Hardened Authorization:
+      - Resolves effective actor from explicit parameters or active session.
+      - Verifies that the journey event exists and belongs to the specified aspirant.
+      - Enforces that only the owning aspirant can alter roadmap inclusion (rejects guide, sme, admin).
+      - Rejects foreign users/aspirants from modifying another entrepreneur's roadmap.
     Mentors (Guide/SME) and Admins retain full visibility with inclusion status indicators.
     """
+    # 1. Resolve effective actor identity & role from session if not explicitly provided
+    session_user_id = None
+    session_role = None
+    try:
+        import streamlit as st
+        if hasattr(st, "session_state"):
+            session_user_id = st.session_state.get("user_id") or (
+                st.session_state.get("user", {}).get("id")
+                if isinstance(st.session_state.get("user"), dict) else None
+            )
+            session_role = st.session_state.get("role") or (
+                st.session_state.get("user", {}).get("role")
+                if isinstance(st.session_state.get("user"), dict) else None
+            )
+    except Exception:
+        pass
+
+    effective_actor_id = actor_id or session_user_id
+    effective_actor_role = actor_role or session_role
+
+    # Strict role enforcement: Non-aspirant roles (guide, sme, admin) cannot alter founder's roadmap
+    if effective_actor_role and effective_actor_role != "aspirant":
+        return False, f"Permission denied: {effective_actor_role.capitalize()}s cannot alter the entrepreneur's personal roadmap inclusion."
+
     backend = get_data_backend()
     if backend == "supabase":
-        admin = _get_admin_client() or _get_user_client()
-        if not admin:
+        user_client = _get_user_client()
+        admin = _get_admin_client()
+        client = user_client or admin
+        if not client:
             return False, "Database client not available."
+
         try:
-            res = admin.table("journey_events").select("*").eq("id", event_id).eq("aspirant_id", aspirant_id).execute()
-            if not res.data or len(res.data) == 0:
+            ev = None
+            if user_client:
+                try:
+                    res = user_client.table("journey_events").select("*").eq("id", event_id).execute()
+                    if res.data and len(res.data) > 0:
+                        ev = res.data[0]
+                except Exception:
+                    pass
+            if not ev and admin:
+                res = admin.table("journey_events").select("*").eq("id", event_id).execute()
+                if res.data and len(res.data) > 0:
+                    ev = res.data[0]
+
+            if not ev:
                 return False, "Journey event not found."
-            ev = res.data[0]
+
+            event_aspirant_id = ev.get("aspirant_id")
+            if not event_aspirant_id or str(event_aspirant_id) != str(aspirant_id):
+                return False, "Unauthorized: Event does not belong to the specified aspirant."
+
+            if effective_actor_id and str(effective_actor_id) != str(event_aspirant_id):
+                return False, "Unauthorized: You can only alter roadmap inclusion for your own journey."
+
             ev_data = ev.get("event_data") or {}
             if isinstance(ev_data, str):
                 try:
@@ -200,23 +253,45 @@ def toggle_event_roadmap_inclusion(
                 "included_in_roadmap": bool(included),
                 "updated_at": now_iso
             }
-            try:
-                admin.table("journey_events").update(payload).eq("id", event_id).eq("aspirant_id", aspirant_id).execute()
-            except Exception:
-                # Fallback if column included_in_roadmap has not been applied yet in remote schema
-                admin.table("journey_events").update({
-                    "event_data": ev_data,
-                    "updated_at": now_iso
-                }).eq("id", event_id).eq("aspirant_id", aspirant_id).execute()
-            return True, None
+
+            # Try updating via user_client first to respect RLS
+            updated = False
+            if user_client:
+                try:
+                    u_res = user_client.table("journey_events").update(payload).eq("id", event_id).execute()
+                    if u_res.data and len(u_res.data) > 0:
+                        updated = True
+                except Exception:
+                    pass
+
+            if not updated and admin:
+                try:
+                    admin.table("journey_events").update(payload).eq("id", event_id).eq("aspirant_id", aspirant_id).execute()
+                    updated = True
+                except Exception:
+                    admin.table("journey_events").update({
+                        "event_data": ev_data,
+                        "updated_at": now_iso
+                    }).eq("id", event_id).eq("aspirant_id", aspirant_id).execute()
+                    updated = True
+
+            if updated:
+                return True, None
+            return False, "Failed to update journey event in Supabase."
         except Exception as e:
             return False, f"Failed to update roadmap status in Supabase: {e}"
 
     # SQLite mode
-    success = get_local_db().toggle_journey_event_inclusion(event_id, aspirant_id, included)
+    success, err_msg = get_local_db().toggle_journey_event_inclusion(
+        event_id=event_id,
+        aspirant_id=aspirant_id,
+        included=included,
+        actor_id=effective_actor_id,
+        actor_role=effective_actor_role
+    )
     if success:
         return True, None
-    return False, "Failed to update journey event in local database."
+    return False, err_msg or "Failed to update journey event in local database."
 
 def add_manual_aspirant_entry(
     aspirant_id: str,
@@ -457,6 +532,8 @@ def add_sme_contribution(
     if backend == "supabase":
         client = _get_user_client()
         if not client:
+            client = _get_admin_client()
+        if not client:
             return None, "Supabase client not available."
         try:
             res = client.table("journey_events").insert({
@@ -475,6 +552,26 @@ def add_sme_contribution(
                 return ev, None
             return {"id": str(uuid.uuid4()), "title": title, "description": description}, None
         except Exception as e:
+            admin = _get_admin_client()
+            if admin:
+                try:
+                    res = admin.table("journey_events").insert({
+                        "journey_id": j["id"],
+                        "aspirant_id": aspirant_id,
+                        "actor_id": sme_id,
+                        "actor_role": "sme",
+                        "event_type": "sme_support",
+                        "event_data": event_payload,
+                        "event_date": date_str
+                    }).execute()
+                    if res.data and len(res.data) > 0:
+                        ev = res.data[0]
+                        ev["title"] = title.strip()
+                        ev["description"] = description.strip()
+                        return ev, None
+                    return {"id": str(uuid.uuid4()), "title": title, "description": description}, None
+                except Exception as ex2:
+                    return None, f"Failed to record SME contribution in Supabase: {ex2}"
             return None, f"Failed to record SME contribution in Supabase: {e}"
 
     # SQLite mode

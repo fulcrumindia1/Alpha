@@ -582,12 +582,14 @@ def complete_first_login_password_change(
 
     if admin_client:
         try:
-            admin_client.table("profiles").update({
+            upd_res = admin_client.table("profiles").update({
                 "profile_data": prof_data,
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }).eq("id", user_id).execute()
+            if not upd_res.data and hasattr(upd_res, "error") and upd_res.error:
+                return False, f"Password updated in Auth, but profile update failed: {upd_res.error}"
         except Exception as e:
-            print(f"[Auth] Supabase profile update error: {e}")
+            return False, f"Password updated in Auth, but failed to persist permanent status in profile: {e}"
 
     # Synchronize SQLite Database
     try:

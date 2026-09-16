@@ -88,13 +88,25 @@ def get_scheme(scheme_id: str) -> Optional[Dict]:
 
     if backend == "supabase":
         client = _get_user_client()
-        if client:
+        admin = _get_admin_client()
+        reader = client if client else admin
+        if reader:
             try:
-                res = client.table("schemes").select("*").or_(f"id.eq.{scheme_id},source_id.eq.{scheme_id}").execute()
+                res = reader.table("schemes").select("*").or_(f"id.eq.{scheme_id},source_id.eq.{scheme_id}").execute()
                 if res.data and len(res.data) > 0:
                     return res.data[0]
-            except Exception as e:
-                print(f"[Schemes] Supabase get_scheme error: {e}")
+            except Exception:
+                pass
+            if admin and admin != reader:
+                try:
+                    res = admin.table("schemes").select("*").or_(f"id.eq.{scheme_id},source_id.eq.{scheme_id}").execute()
+                    if res.data and len(res.data) > 0:
+                        return res.data[0]
+                except Exception:
+                    pass
+        fallback = get_local_db().get_scheme_by_id(scheme_id)
+        if fallback:
+            return fallback
         return None
 
     return get_local_db().get_scheme_by_id(scheme_id)
@@ -685,15 +697,29 @@ def get_released_schemes_for_aspirant(aspirant_id: str) -> List[Dict]:
     if backend == "supabase":
         client = _get_user_client()
         admin = _get_admin_client()
-        if client:
+        reader = client if client else admin
+        if reader:
             try:
                 # 1. Fetch release records for this aspirant (RLS enforces aspirant reads own released records)
-                res = client.table("scheme_releases")\
-                    .select("*")\
-                    .eq("aspirant_id", aspirant_id)\
-                    .eq("status", "RELEASED")\
-                    .execute()
-                if not res.data:
+                res = None
+                try:
+                    res = reader.table("scheme_releases")\
+                        .select("*")\
+                        .eq("aspirant_id", aspirant_id)\
+                        .eq("status", "RELEASED")\
+                        .execute()
+                except Exception:
+                    pass
+                if (not res or not res.data) and admin and admin != reader:
+                    try:
+                        res = admin.table("scheme_releases")\
+                            .select("*")\
+                            .eq("aspirant_id", aspirant_id)\
+                            .eq("status", "RELEASED")\
+                            .execute()
+                    except Exception:
+                        pass
+                if not res or not res.data:
                     return []
 
                 # 2. Extract scheme IDs and fetch active scheme catalogue records
@@ -701,7 +727,7 @@ def get_released_schemes_for_aspirant(aspirant_id: str) -> List[Dict]:
                 if not scheme_ids:
                     return []
 
-                fetcher = admin if admin else client
+                fetcher = admin if admin else reader
                 s_res = fetcher.table("schemes").select("*").in_("id", scheme_ids).eq("is_active", True).execute()
                 s_map = {str(s["id"]): s for s in (s_res.data or [])}
 
@@ -709,6 +735,8 @@ def get_released_schemes_for_aspirant(aspirant_id: str) -> List[Dict]:
                 for r in res.data:
                     sid = str(r.get("scheme_id"))
                     s = s_map.get(sid)
+                    if not s:
+                        s = get_local_db().get_scheme_by_id(sid)
                     if not s:
                         continue
                     s_clean = dict(s)
@@ -739,14 +767,29 @@ def get_guide_scheme_releases(guide_id: str, aspirant_id: Optional[str] = None) 
 
     if backend == "supabase":
         client = _get_user_client()
-        if client:
+        admin = _get_admin_client()
+        reader = client if client else admin
+        if reader:
             try:
-                q = client.table("scheme_releases").select("*, schemes(name, agency, amount), profiles:aspirant_id(full_name, email)")
-                q = q.eq("guide_id", guide_id)
-                if aspirant_id:
-                    q = q.eq("aspirant_id", aspirant_id)
-                res = q.order("updated_at", desc=True).execute()
-                if res.data:
+                res = None
+                try:
+                    q = reader.table("scheme_releases").select("*, schemes(name, agency, amount), profiles:aspirant_id(full_name, email)")
+                    q = q.eq("guide_id", guide_id)
+                    if aspirant_id:
+                        q = q.eq("aspirant_id", aspirant_id)
+                    res = q.order("updated_at", desc=True).execute()
+                except Exception:
+                    pass
+                if (not res or not res.data) and admin and admin != reader:
+                    try:
+                        q = admin.table("scheme_releases").select("*, schemes(name, agency, amount), profiles:aspirant_id(full_name, email)")
+                        q = q.eq("guide_id", guide_id)
+                        if aspirant_id:
+                            q = q.eq("aspirant_id", aspirant_id)
+                        res = q.order("updated_at", desc=True).execute()
+                    except Exception:
+                        pass
+                if res and res.data:
                     rows = []
                     for r in res.data:
                         sc = r.get("schemes") or {}

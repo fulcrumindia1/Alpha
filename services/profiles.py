@@ -252,21 +252,6 @@ def update_aspirant_profile(
         metadata={"sector": sector_name, "stage": business_data.get("stage"), "district": district}
     )
 
-    # Automate Scheme Recalculation & Journey Note
-    from services.schemes import match_schemes_for_aspirant
-    matches = match_schemes_for_aspirant(user_id)
-    if matches:
-        top_schemes = [m["name"] for m in matches[:3]]
-        log_meaningful_event(
-            aspirant_id=user_id,
-            actor_id=user_id,
-            actor_role="system",
-            event_type="scheme_matched",
-            title="Funding Opportunities Identified",
-            description=f"Matched with {len(matches)} active schemes. Top recommendations: {', '.join(top_schemes)}.",
-            metadata={"match_count": len(matches), "top_schemes": top_schemes}
-        )
-
     updated_record["completion_pct"] = calculate_completion(updated_record)
     return updated_record, None
 

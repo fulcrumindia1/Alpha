@@ -38,19 +38,14 @@ from services.constants import MASTER_CATEGORY_TYPES, MASTER_STAGES, MASTER_DIST
 from services.help_requests import (
     list_guide_requests,
     guide_respond_request,
-    check_and_escalate_overdue_requests
+    create_mentor_admin_query,
+    list_mentor_admin_queries
 )
 from services.schemes_ui import parse_list_field
 
 def render_guide_portal(user_profile: dict):
     guide_id = user_profile["id"]
     guide_name = user_profile.get("full_name", "Mentor")
-
-    # Run auto-escalation check lazily
-    try:
-        check_and_escalate_overdue_requests()
-    except Exception:
-        pass
 
     st.markdown(f"""
     <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:1.5rem; padding-bottom:1rem; border-bottom:1px solid #E2E8F0;">
@@ -105,7 +100,7 @@ def render_guide_portal(user_profile: dict):
                 # Calculate direct consultations from this mentee
                 all_guide_tickets = list_guide_requests(guide_id) or []
                 asp_tickets = [t for t in all_guide_tickets if t.get("aspirant_id") == selected_asp_id]
-                open_cnt = sum(1 for t in asp_tickets if t.get("status") in ["OPEN", "IN_PROGRESS", "ESCALATED"])
+                open_cnt = sum(1 for t in asp_tickets if t.get("status") in ["OPEN", "IN_PROGRESS"])
                 consult_label = f"💬 Consultations ({open_cnt} Open)" if open_cnt > 0 else "💬 Consultations"
 
                 # 5 Dedicated Context Tabs for Selected Aspirant
@@ -699,19 +694,12 @@ def render_guide_portal(user_profile: dict):
                     else:
                         for t in asp_tickets:
                             t_status = t.get("status", "OPEN")
-                            st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981" if t_status == "RESOLVED" else "#ef4444"
-                            is_escalated = (t_status == "ESCALATED")
+                            st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981"
 
                             escaped_subject = html.escape(t.get('subject', 'Support Ticket'))
                             escaped_asp_name = html.escape(t.get('aspirant_name') or curr_asp.get('full_name', 'Entrepreneur'))
                             escaped_asp_email = html.escape(t.get('aspirant_email') or curr_asp.get('email', ''))
                             escaped_message = html.escape(t.get('message', '')).replace('\n', '<br>')
-                            border_color = '#EF4444' if is_escalated else '#E2E8F0'
-
-                            escalated_html = ""
-                            if is_escalated:
-                                esc_reason = html.escape(t.get('escalation_reason') or 'Automatically escalated after 7 days without resolution.')
-                                escalated_html = f'<div style="background:#FEF2F2; border:1px solid #F87171; border-radius:6px; padding:0.5rem 0.8rem; color:#991B1B; font-weight:700; font-size:0.84rem; margin-top:0.5rem;">⚠️ ESCALATED TO ADMIN: {esc_reason}</div>'
 
                             guide_resp_html = ""
                             if t.get('guide_response'):
@@ -719,7 +707,7 @@ def render_guide_portal(user_profile: dict):
                                 guide_resp_html = f'<div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:3px solid #10b981; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#166534; margin-top:0.5rem;"><strong>Your Guidance Response:</strong> {g_resp}</div>'
 
                             card_html = (
-                                f'<div style="background:#FFFFFF; border:1px solid {border_color}; border-left:4px solid {st_color}; border-radius:0 12px 12px 0; padding:1.2rem; margin-bottom:0.8rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
+                                f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid {st_color}; border-radius:0 12px 12px 0; padding:1.2rem; margin-bottom:0.8rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
                                 f'<div style="display:flex; justify-content:space-between; align-items:center;">'
                                 f'<div><span style="font-size:1.1rem; font-weight:800; color:#0F172A;">{escaped_subject}</span>'
                                 f'<span style="font-size:0.75rem; font-weight:800; background:{st_color}; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:8px;">{t_status}</span>'
@@ -728,12 +716,12 @@ def render_guide_portal(user_profile: dict):
                                 f'</div>'
                                 f'<div style="font-size:0.85rem; color:#64748B; margin:4px 0;">From: <strong style="color:#0F172A;">{escaped_asp_name}</strong> ({escaped_asp_email})</div>'
                                 f'<div style="font-size:0.9rem; color:#334155; margin-top:0.4rem; line-height:1.45;">{escaped_message}</div>'
-                                f'{escalated_html}{guide_resp_html}'
+                                f'{guide_resp_html}'
                                 f'</div>'
                             )
                             st.markdown(card_html, unsafe_allow_html=True)
 
-                            if t_status in ["OPEN", "IN_PROGRESS", "ESCALATED"]:
+                            if t_status in ["OPEN", "IN_PROGRESS"]:
                                 with st.expander(f"💬 Provide Advisory Guidance for '{t.get('subject')}'", expanded=False):
                                     with st.form(f"form_guide_resp_sub_{t['id']}"):
                                         c_r1, c_r2 = st.columns([1, 2])
@@ -753,16 +741,87 @@ def render_guide_portal(user_profile: dict):
                                                 else:
                                                     st.error(err or "Failed to record response.")
 
+                    # ── INSTITUTIONAL ROADBLOCKS & ADMIN DIRECTIVES ──
+                    st.markdown("---")
+                    st.subheader("🏛️ Institutional Roadblocks & Directorate Directives")
+                    st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>Facing policy hurdles, district clearance delays, or requiring co-mentor intervention for <strong>{curr_asp['full_name']}</strong>? Request an official administrative directive from the Program Directorate. <em>(Strictly invisible to the entrepreneur)</em></p>", unsafe_allow_html=True)
+
+                    admin_queries = list_mentor_admin_queries(mentor_id=guide_id, aspirant_id=selected_asp_id)
+                    if admin_queries:
+                        st.markdown("##### 📜 Directorate Inquiries & Issued Directives")
+                        for q in admin_queries:
+                            q_st = q.get("status", "PENDING_ADMIN")
+                            q_color = "#f59e0b" if q_st == "PENDING_ADMIN" else "#10b981"
+                            q_sub = html.escape(q.get("subject", "Institutional Query"))
+                            q_msg = html.escape(q.get("message", "")).replace("\n", "<br>")
+
+                            directive_html = ""
+                            if q.get("admin_directive"):
+                                ad_text = html.escape(q.get("admin_directive", "")).replace("\n", "<br>")
+                                dir_time = str(q.get("directive_issued_at", ""))[:16]
+                                directive_html = f"""
+                                <div style="background:#F0FDF4; border:1px solid #86EFAC; border-left:4px solid #16A34A; border-radius:0 8px 8px 0; padding:0.75rem 1rem; margin-top:0.6rem;">
+                                    <div style="font-weight:800; color:#15803D; font-size:0.88rem; display:flex; justify-content:space-between;">
+                                        <span>🏛️ Official Directorate Directive</span>
+                                        <span style="font-size:0.75rem; color:#166534; font-weight:600;">Issued: {dir_time}</span>
+                                    </div>
+                                    <div style="font-size:0.9rem; color:#14532D; margin-top:0.35rem; line-height:1.5;">{ad_text}</div>
+                                </div>
+                                """
+
+                            st.markdown(f"""
+                            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid {q_color}; border-radius:0 10px 10px 0; padding:1rem; margin-bottom:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <div>
+                                        <span style="font-weight:700; color:#0F172A; font-size:1rem;">{q_sub}</span>
+                                        <span style="font-size:0.72rem; font-weight:800; background:{q_color}; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:6px;">{q_st}</span>
+                                        <span style="font-size:0.72rem; font-weight:700; background:#F1F5F9; color:#475569; padding:2px 8px; border-radius:6px; margin-left:4px;">Priority: {q.get("priority","MEDIUM")}</span>
+                                    </div>
+                                    <div style="font-size:0.78rem; color:#64748B;">{str(q.get("created_at",""))[:16]}</div>
+                                </div>
+                                <div style="font-size:0.88rem; color:#334155; margin-top:0.4rem; line-height:1.45;">{q_msg}</div>
+                                {directive_html}
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    with st.expander(f"➕ Request Institutional Support / Admin Directive for {curr_asp['full_name']}", expanded=False):
+                        with st.form(f"form_guide_admin_query_{selected_asp_id}"):
+                            c_aq1, c_aq2 = st.columns([3, 1])
+                            with c_aq1:
+                                q_subject = st.text_input("Institutional Subject / Blockage *", placeholder="e.g. DIC capital subsidy disbursement delay or Need Co-Guide for export compliance", key=f"gaq_sub_{selected_asp_id}")
+                            with c_aq2:
+                                q_priority = st.selectbox("Urgency / Priority", ["MEDIUM", "HIGH", "URGENT"], index=0, key=f"gaq_pri_{selected_asp_id}")
+
+                            q_desc = st.text_area("Detailed Roadblock Context & Required Administrative Intervention *", placeholder="Describe the policy hurdle, institutional blockage, or specify if co-guidance / additional domain advisory is needed...", height=90, key=f"gaq_desc_{selected_asp_id}")
+
+                            if st.form_submit_button("Submit Request to Directorate", type="primary"):
+                                if not q_subject.strip() or not q_desc.strip():
+                                    st.warning("Please provide both a subject and roadblock details.")
+                                else:
+                                    q_res, q_err = create_mentor_admin_query(
+                                        mentor_id=guide_id,
+                                        mentor_role="guide",
+                                        aspirant_id=selected_asp_id,
+                                        subject=q_subject.strip(),
+                                        message=q_desc.strip(),
+                                        priority=q_priority
+                                    )
+                                    if q_res:
+                                        st.success("Administrative request submitted to Program Directorate! Admin will issue official directives.")
+                                        st.rerun()
+                                    else:
+                                        st.error(q_err or "Failed to submit request.")
+
     # ─────────────────────────────────────────────────────────────
     # TAB 2: GUIDE CONSULTATIONS QUEUE
     # ─────────────────────────────────────────────────────────────
     with main_tabs[1]:
         st.subheader("Assigned Mentee Consultations")
-        st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Consultation requests submitted by your assigned entrepreneurs. Inquiries pending for more than 7 days automatically escalate to the Administrator.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Consultation requests submitted by your assigned entrepreneurs requiring your mentorship and guidance.</p>", unsafe_allow_html=True)
 
         col_f1, col_f2 = st.columns([3, 1])
         with col_f2:
-            status_filter = st.selectbox("Status Filter", ["ALL", "OPEN", "IN_PROGRESS", "RESOLVED", "ESCALATED"], key="guide_hr_status_filter")
+            status_filter = st.selectbox("Status Filter", ["ALL", "OPEN", "IN_PROGRESS", "RESOLVED"], key="guide_hr_status_filter")
 
         guide_tickets = list_guide_requests(guide_id)
         # Only show tickets from currently assigned caseload entrepreneurs
@@ -777,19 +836,12 @@ def render_guide_portal(user_profile: dict):
         else:
             for t in guide_tickets:
                 t_status = t.get("status", "OPEN")
-                st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981" if t_status == "RESOLVED" else "#ef4444"
-                is_escalated = (t_status == "ESCALATED")
+                st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981"
 
                 escaped_subject = html.escape(t.get('subject', 'Support Ticket'))
                 escaped_asp_name = html.escape(t.get('aspirant_name') or 'Entrepreneur')
                 escaped_asp_email = html.escape(t.get('aspirant_email') or '')
                 escaped_message = html.escape(t.get('message', '')).replace('\n', '<br>')
-                border_color = '#EF4444' if is_escalated else '#E2E8F0'
-
-                escalated_html = ""
-                if is_escalated:
-                    esc_reason = html.escape(t.get('escalation_reason') or 'Automatically escalated after 7 days without resolution.')
-                    escalated_html = f'<div style="background:#FEF2F2; border:1px solid #F87171; border-radius:6px; padding:0.5rem 0.8rem; color:#991B1B; font-weight:700; font-size:0.84rem; margin-top:0.5rem;">⚠️ ESCALATED TO ADMIN: {esc_reason}</div>'
 
                 guide_resp_html = ""
                 if t.get('guide_response'):
@@ -797,7 +849,7 @@ def render_guide_portal(user_profile: dict):
                     guide_resp_html = f'<div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:3px solid #10b981; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#166534; margin-top:0.5rem;"><strong>Guide Response:</strong> {g_resp}</div>'
 
                 card_html = (
-                    f'<div style="background:#FFFFFF; border:1px solid {border_color}; border-left:4px solid {st_color}; border-radius:0 12px 12px 0; padding:1.2rem; margin-bottom:0.8rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
+                    f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid {st_color}; border-radius:0 12px 12px 0; padding:1.2rem; margin-bottom:0.8rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
                     f'<div style="display:flex; justify-content:space-between; align-items:center;">'
                     f'<div><span style="font-size:1.1rem; font-weight:800; color:#0F172A;">{escaped_subject}</span>'
                     f'<span style="font-size:0.75rem; font-weight:800; background:{st_color}; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:8px;">{t_status}</span>'
@@ -806,7 +858,7 @@ def render_guide_portal(user_profile: dict):
                     f'</div>'
                     f'<div style="font-size:0.85rem; color:#64748B; margin:4px 0;">From: <strong style="color:#0F172A;">{escaped_asp_name}</strong> ({escaped_asp_email})</div>'
                     f'<div style="font-size:0.9rem; color:#334155; margin-top:0.4rem; line-height:1.45;">{escaped_message}</div>'
-                    f'{escalated_html}{guide_resp_html}'
+                    f'{guide_resp_html}'
                     f'</div>'
                 )
                 st.markdown(card_html, unsafe_allow_html=True)

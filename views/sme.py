@@ -15,7 +15,12 @@ from services.relationships import get_assigned_aspirants_for_sme, get_assignmen
 from services.profiles import get_profile, update_mentor_profile
 from services.journey import get_journey_timeline, add_sme_contribution, soft_delete_event, get_standard_role_label
 from services.constants import MASTER_DISTRICTS_TN
-from services.help_requests import list_sme_requests, sme_respond_request
+from services.help_requests import (
+    list_sme_requests,
+    sme_respond_request,
+    create_mentor_admin_query,
+    list_mentor_admin_queries
+)
 
 def render_sme_portal(user_profile: dict):
     sme_id = user_profile["id"]
@@ -332,8 +337,8 @@ def render_sme_portal(user_profile: dict):
                             escaped_message = html.escape(t.get('message', '')).replace('\n', '<br>')
 
                             sme_resp_html = ""
-                            if t.get('sme_response') or t.get('guide_response'):
-                                r_text = t.get('sme_response') or t.get('guide_response') or ""
+                            if t.get('sme_response'):
+                                r_text = t.get('sme_response') or ""
                                 sme_resp_html = f'<div style="background:#FFFBEB; border:1px solid #FDE68A; border-left:3px solid #f59e0b; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#92400E; margin-top:0.5rem;"><strong>Your Specialist Advisory Note:</strong> {html.escape(r_text)}</div>'
 
                             card_html = (
@@ -372,6 +377,77 @@ def render_sme_portal(user_profile: dict):
                                                 else:
                                                     st.error(err or "Failed to record response.")
 
+                    # ── INSTITUTIONAL ROADBLOCKS & ADMIN DIRECTIVES ──
+                    st.markdown("---")
+                    st.subheader("🏛️ Institutional Roadblocks & Directorate Directives")
+                    st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>Encountering statutory hurdles, testing lab certification blocks, or requiring administrative intervention for <strong>{curr_asp['full_name']}</strong>? Request an official administrative directive from the Program Directorate. <em>(Strictly invisible to the entrepreneur)</em></p>", unsafe_allow_html=True)
+
+                    sme_admin_queries = list_mentor_admin_queries(mentor_id=sme_id, aspirant_id=selected_asp_id)
+                    if sme_admin_queries:
+                        st.markdown("##### 📜 Directorate Inquiries & Issued Directives")
+                        for q in sme_admin_queries:
+                            q_st = q.get("status", "PENDING_ADMIN")
+                            q_color = "#f59e0b" if q_st == "PENDING_ADMIN" else "#10b981"
+                            q_sub = html.escape(q.get("subject", "Institutional Query"))
+                            q_msg = html.escape(q.get("message", "")).replace("\n", "<br>")
+
+                            directive_html = ""
+                            if q.get("admin_directive"):
+                                ad_text = html.escape(q.get("admin_directive", "")).replace("\n", "<br>")
+                                dir_time = str(q.get("directive_issued_at", ""))[:16]
+                                directive_html = f"""
+                                <div style="background:#F0FDF4; border:1px solid #86EFAC; border-left:4px solid #16A34A; border-radius:0 8px 8px 0; padding:0.75rem 1rem; margin-top:0.6rem;">
+                                    <div style="font-weight:800; color:#15803D; font-size:0.88rem; display:flex; justify-content:space-between;">
+                                        <span>🏛️ Official Directorate Directive</span>
+                                        <span style="font-size:0.75rem; color:#166534; font-weight:600;">Issued: {dir_time}</span>
+                                    </div>
+                                    <div style="font-size:0.9rem; color:#14532D; margin-top:0.35rem; line-height:1.5;">{ad_text}</div>
+                                </div>
+                                """
+
+                            st.markdown(f"""
+                            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid {q_color}; border-radius:0 10px 10px 0; padding:1rem; margin-bottom:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <div>
+                                        <span style="font-weight:700; color:#0F172A; font-size:1rem;">{q_sub}</span>
+                                        <span style="font-size:0.72rem; font-weight:800; background:{q_color}; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:6px;">{q_st}</span>
+                                        <span style="font-size:0.72rem; font-weight:700; background:#F1F5F9; color:#475569; padding:2px 8px; border-radius:6px; margin-left:4px;">Priority: {q.get("priority","MEDIUM")}</span>
+                                    </div>
+                                    <div style="font-size:0.78rem; color:#64748B;">{str(q.get("created_at",""))[:16]}</div>
+                                </div>
+                                <div style="font-size:0.88rem; color:#334155; margin-top:0.4rem; line-height:1.45;">{q_msg}</div>
+                                {directive_html}
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    with st.expander(f"➕ Request Institutional Support / Admin Directive for {curr_asp['full_name']}", expanded=False):
+                        with st.form(f"form_sme_admin_query_{selected_asp_id}"):
+                            c_aq1, c_aq2 = st.columns([3, 1])
+                            with c_aq1:
+                                q_subject = st.text_input("Institutional Subject / Blockage *", placeholder="e.g. FSSAI Central Lab Testing clearance or DIC compliance subsidy", key=f"saq_sub_{selected_asp_id}")
+                            with c_aq2:
+                                q_priority = st.selectbox("Urgency / Priority", ["MEDIUM", "HIGH", "URGENT"], index=0, key=f"saq_pri_{selected_asp_id}")
+
+                            q_desc = st.text_area("Detailed Roadblock Context & Required Administrative Intervention *", placeholder="Describe statutory blockage, regulatory delays, or if additional co-guidance is needed...", height=90, key=f"saq_desc_{selected_asp_id}")
+
+                            if st.form_submit_button("Submit Request to Directorate", type="primary"):
+                                if not q_subject.strip() or not q_desc.strip():
+                                    st.warning("Please provide both a subject and roadblock details.")
+                                else:
+                                    q_res, q_err = create_mentor_admin_query(
+                                        mentor_id=sme_id,
+                                        mentor_role="sme",
+                                        aspirant_id=selected_asp_id,
+                                        subject=q_subject.strip(),
+                                        message=q_desc.strip(),
+                                        priority=q_priority
+                                    )
+                                    if q_res:
+                                        st.success("Administrative request submitted to Program Directorate! Admin will issue official directives.")
+                                        st.rerun()
+                                    else:
+                                        st.error(q_err or "Failed to submit request.")
+
     # ─────────────────────────────────────────────────────────────
     # TAB 2: SME ALL CONSULTATIONS OVERVIEW
     # ─────────────────────────────────────────────────────────────
@@ -400,8 +476,8 @@ def render_sme_portal(user_profile: dict):
                 escaped_message = html.escape(t.get('message', '')).replace('\n', '<br>')
 
                 sme_resp_html = ""
-                if t.get('sme_response') or t.get('guide_response'):
-                    r_text = t.get('sme_response') or t.get('guide_response') or ""
+                if t.get('sme_response'):
+                    r_text = t.get('sme_response') or ""
                     sme_resp_html = f'<div style="background:#FFFBEB; border:1px solid #FDE68A; border-left:3px solid #f59e0b; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#92400E; margin-top:0.5rem;"><strong>Specialist Advisory Note:</strong> {html.escape(r_text)}</div>'
 
                 card_html = (

@@ -22,7 +22,7 @@ from services.journey import get_journey_timeline, soft_delete_event, log_meanin
 from services.schemes import list_schemes, get_scheme, upsert_scheme, toggle_archive_scheme, delete_scheme, match_schemes_for_aspirant
 from services.pdf_generator import generate_aspirant_dossier_pdf
 from services.schemes_ui import render_fund_explorer_card
-from services.help_requests import list_requests, resolve_request, check_and_escalate_overdue_requests
+from services.help_requests import list_mentor_admin_queries, admin_respond_to_mentor
 from services.constants import (
     MASTER_SECTORS,
     MASTER_STAGES,
@@ -35,12 +35,6 @@ from services.constants import (
 def render_admin_portal(admin_profile: dict):
     admin_id = admin_profile["id"]
     admin_name = admin_profile.get("full_name", "Administrator")
-
-    # Automatically check for and escalate overdue tickets (>7 days)
-    try:
-        check_and_escalate_overdue_requests()
-    except Exception:
-        pass
 
     st.markdown(f"""
     <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:1.5rem; padding-bottom:1rem; border-bottom:1px solid #E2E8F0;">
@@ -82,8 +76,8 @@ def render_admin_portal(admin_profile: dict):
     guides = list_profiles_by_role("guide")
     smes = list_profiles_by_role("sme")
     all_schemes = list_schemes(active_only=False)
-    help_tickets = list_requests()
-    open_tickets = [t for t in help_tickets if t.get("status") in ("OPEN", "IN_PROGRESS")]
+    mentor_queries = list_mentor_admin_queries()
+    pending_directives = [q for q in mentor_queries if q.get("status") == "PENDING_ADMIN"]
 
     # 6 Top Metric Cards
     c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -118,8 +112,8 @@ def render_admin_portal(admin_profile: dict):
     with c5:
         st.markdown(f"""
         <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-bottom:3px solid #ef4444; border-radius:12px; padding:0.9rem; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
-            <div style="font-size:0.72rem; font-weight:700; color:#64748B; text-transform:uppercase; letter-spacing:0.5px;">Open Help</div>
-            <div style="font-size:1.75rem; font-weight:800; color:#0F172A; margin-top:2px;">{len(open_tickets)}</div>
+            <div style="font-size:0.72rem; font-weight:700; color:#64748B; text-transform:uppercase; letter-spacing:0.5px;">Directives Needed</div>
+            <div style="font-size:1.75rem; font-weight:800; color:#0F172A; margin-top:2px;">{len(pending_directives)}</div>
         </div>
         """, unsafe_allow_html=True)
     with c6:
@@ -138,7 +132,7 @@ def render_admin_portal(admin_profile: dict):
         "🧭 Guides Management",
         "🔬 SMEs Management",
         "🎯 Mentor Assignments",
-        "💬 Help Requests Queue",
+        "🏛️ Mentor Inquiries & Directives",
         "🏦 Scheme Catalogue (CRUD)"
     ])
 
@@ -481,61 +475,114 @@ def render_admin_portal(admin_profile: dict):
                             st.error(err or "Assignment failed.")
 
     # ─────────────────────────────────────────────────────────────
-    # TAB 5: HELP REQUESTS QUEUE
+    # TAB 5: MENTOR INQUIRIES & ADMINISTRATIVE DIRECTIVES
     # ─────────────────────────────────────────────────────────────
     with tabs[4]:
-        st.subheader("Support & Help Requests Queue")
-        if not help_tickets:
-            st.info("No help requests currently logged in system.")
+        st.subheader("🏛️ Mentor Inquiries & Administrative Directives")
+        st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Official Program Directorate Governance: Guides and Domain SMEs submit institutional roadblocks on behalf of their assigned entrepreneurs. Review inquiries, issue binding Administrative Directives, or assign Co-Guides (Guide B) and specialized Domain SMEs. <em>(Strictly invisible to the entrepreneur)</em></p>", unsafe_allow_html=True)
+
+        col_mq1, col_mq2 = st.columns([2, 2])
+        with col_mq1:
+            st_filter = st.selectbox("Directive Status Filter", ["ALL", "PENDING_ADMIN", "DIRECTIVE_ISSUED", "RESOLVED"], key="admin_dir_st_filter")
+        with col_mq2:
+            role_filter = st.selectbox("Mentor Role Filter", ["ALL", "guide", "sme"], format_func=lambda x: "All Roles" if x == "ALL" else ("Guides Only" if x == "guide" else "Domain SMEs Only"), key="admin_dir_role_filter")
+
+        all_queries = list_mentor_admin_queries()
+        if st_filter != "ALL":
+            all_queries = [q for q in all_queries if q.get("status") == st_filter]
+        if role_filter != "ALL":
+            all_queries = [q for q in all_queries if (q.get("requester_role_actual") or q.get("requester_role")) == role_filter]
+
+        if not all_queries:
+            st.info("No mentor administrative inquiries currently recorded matching the filter criteria.")
         else:
-            for ticket in help_tickets:
-                t_id = ticket["id"]
-                t_status = ticket.get("status", "OPEN")
-                is_escalated = (t_status == "ESCALATED")
-                st_color = "#ef4444" if is_escalated else "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981"
-                badge_label = "🚨 ESCALATED" if is_escalated else t_status
+            # Build Guide and SME lookup dictionaries for co-assignment options
+            guides_list = list_profiles_by_role("guide")
+            smes_list = list_profiles_by_role("sme")
+            guide_options = {"NONE": "None (Keep Current Mentorship Team)"}
+            for g in guides_list:
+                guide_options[g["id"]] = f"{g['full_name']} ({g.get('district', 'Tamil Nadu')})"
+            sme_options = {"NONE": "None (No Additional Domain SME)"}
+            for s in smes_list:
+                sme_options[s["id"]] = f"{s['full_name']} — {s.get('profile_data',{}).get('expertise', 'Specialist')}"
 
-                with st.expander(f"[{badge_label}] {ticket.get('aspirant_name', 'Founder')}: {ticket.get('subject')} (Priority: {ticket.get('priority', 'MEDIUM')})", expanded=is_escalated):
-                    if is_escalated:
-                        st.markdown(f"""
-                        <div style="background:#FEF2F2; border:1.5px solid #EF4444; border-radius:8px; padding:0.65rem 0.9rem; margin-bottom:0.75rem; color:#991B1B;">
-                            <strong>🚨 OVERDUE ESCALATION NOTICE:</strong> {ticket.get('escalation_reason') or 'Automatically escalated after 7 days without resolution.'}
-                            <div style="font-size:0.8rem; color:#B91C1C; margin-top:2px;">Escalated At: {str(ticket.get('escalated_at',''))[:19]}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+            for query in all_queries:
+                q_id = query["id"]
+                q_status = query.get("status", "PENDING_ADMIN")
+                st_color = "#f59e0b" if q_status == "PENDING_ADMIN" else "#10b981"
+                mentor_role_lbl = (query.get("requester_role_actual") or query.get("requester_role") or "guide").upper()
+                mentor_name = query.get("requester_name") or "Mentor"
+                asp_name = query.get("aspirant_name") or "Entrepreneur"
+                q_sub = html.escape(query.get("subject", "Institutional Query"))
+                q_priority = query.get("priority", "MEDIUM")
 
+                with st.expander(f"[{q_status}] For Mentee: {asp_name} | From {mentor_role_lbl}: {mentor_name} — {q_sub} ({q_priority})", expanded=(q_status == "PENDING_ADMIN")):
                     st.markdown(f"""
-                    <div style="font-size:0.95rem; color:#0F172A; margin-bottom:0.75rem;">
-                        <strong>Message:</strong> {ticket.get('message')}
-                    </div>
-                    <div style="font-size:0.8rem; color:#64748B; margin-bottom:0.75rem;">
-                        Founder Email: {ticket.get('aspirant_email')} | Submitted: {str(ticket.get('created_at',''))[:19]}
+                    <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-left:4px solid {st_color}; border-radius:0 8px 8px 0; padding:0.9rem 1.1rem; margin-bottom:0.75rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div style="font-weight:800; color:#0F172A; font-size:1.05rem;">{q_sub}</div>
+                            <div style="font-size:0.8rem; color:#64748B;">Submitted: {str(query.get('created_at',''))[:16]}</div>
+                        </div>
+                        <div style="font-size:0.85rem; color:#475569; margin:4px 0;">
+                            Submitted by: <strong>{mentor_name}</strong> ({mentor_role_lbl}) on behalf of entrepreneur: <strong style="color:#0F172A;">{asp_name}</strong>
+                        </div>
+                        <div style="font-size:0.92rem; color:#1E293B; margin-top:0.5rem; line-height:1.5;">
+                            {html.escape(query.get('message', '')).replace(chr(10), '<br>')}
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
 
-                    if ticket.get("guide_response"):
+                    if query.get("admin_directive"):
                         st.markdown(f"""
-                        <div style="background:#F0FDF4; border-left:3px solid #10b981; border:1px solid #BBF7D0; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#166534; margin-bottom:0.75rem;">
-                            <strong>Assigned Guide Response:</strong> {ticket.get('guide_response')}
+                        <div style="background:#F0FDF4; border:1px solid #86EFAC; border-left:4px solid #16A34A; border-radius:0 8px 8px 0; padding:0.75rem 1rem; margin-bottom:0.75rem;">
+                            <div style="font-weight:800; color:#15803D; font-size:0.88rem; display:flex; justify-content:space-between;">
+                                <span>🏛️ Issued Directorate Directive</span>
+                                <span style="font-size:0.75rem; color:#166534; font-weight:600;">Issued: {str(query.get('directive_issued_at',''))[:16]}</span>
+                            </div>
+                            <div style="font-size:0.9rem; color:#14532D; margin-top:0.35rem; line-height:1.5;">
+                                {html.escape(query.get('admin_directive','')).replace(chr(10), '<br>')}
+                            </div>
                         </div>
                         """, unsafe_allow_html=True)
 
-                    with st.form(f"form_resp_{t_id}"):
-                        c_st1, c_st2 = st.columns([1, 3])
-                        with c_st1:
-                            status_choices = ["OPEN", "IN_PROGRESS", "RESOLVED", "ESCALATED"]
-                            cur_idx = status_choices.index(t_status) if t_status in status_choices else 0
-                            new_st = st.selectbox("Update Status", status_choices, index=cur_idx)
-                        with c_st2:
-                            resp_text = st.text_input("Admin Response", value=ticket.get("admin_response") or "Reviewed and resolved by Program Administrator.")
+                    with st.form(f"form_admin_dir_{q_id}"):
+                        st.markdown("##### 🏛️ Issue Official Administrative Directive")
+                        st.caption("The directive will be dispatched directly to the mentor. The entrepreneur will never see this administrative communication.")
 
-                        if st.form_submit_button("SUBMIT RESPONSE & UPDATE", type="primary"):
-                            ok, err = resolve_request(t_id, new_st, resp_text, admin_id)
-                            if ok:
-                                st.success(f"Ticket updated to {new_st}!")
-                                st.rerun()
+                        col_d1, col_d2 = st.columns([1, 2])
+                        with col_d1:
+                            status_choices = ["DIRECTIVE_ISSUED", "RESOLVED", "PENDING_ADMIN"]
+                            cur_st_idx = status_choices.index(q_status) if q_status in status_choices else 0
+                            new_st = st.selectbox("Directive Status", status_choices, index=cur_st_idx, key=f"dir_st_{q_id}")
+                        with col_d2:
+                            directive_text = st.text_area("Administrative Directive / Resolution Instructions *", value=query.get("admin_directive") or "", placeholder="e.g. Approved DIC fast-track liaison. Authorized subsidy exception. Assigned Co-Guide B to oversee bank sanction documents. Guide to communicate milestones to founder.", height=80, key=f"dir_txt_{q_id}")
+
+                        st.markdown("###### 🤝 Operational Support Options (Assign on Behalf of Mentee)")
+                        col_asg1, col_asg2 = st.columns(2)
+                        with col_asg1:
+                            sel_co_guide = st.selectbox("Assign / Consult Co-Guide (Guide B)", list(guide_options.keys()), format_func=lambda x: guide_options[x], key=f"dir_cog_{q_id}", help="Adds an additional Guide to the entrepreneur's roster (as Guide B) without removing primary Guide A.")
+                        with col_asg2:
+                            sel_add_sme = st.selectbox("Assign / Add Domain Specialist (SME)", list(sme_options.keys()), format_func=lambda x: sme_options[x], key=f"dir_sme_{q_id}", help="Adds a domain specialist (GST, Legal, FSSAI, Patents) to the entrepreneur's advisory panel.")
+
+                        if st.form_submit_button("ISSUE DIRECTIVE & UPDATE", type="primary"):
+                            if not directive_text.strip():
+                                st.warning("Please enter the directive instructions for the mentor.")
                             else:
-                                st.error(err or "Failed to update ticket.")
+                                co_g_val = sel_co_guide if sel_co_guide != "NONE" else None
+                                sme_val = sel_add_sme if sel_add_sme != "NONE" else None
+                                ok, err = admin_respond_to_mentor(
+                                    query_id=q_id,
+                                    admin_id=admin_id,
+                                    directive=directive_text.strip(),
+                                    new_status=new_st,
+                                    assign_co_guide_id=co_g_val,
+                                    assign_sme_id=sme_val
+                                )
+                                if ok:
+                                    st.success(f"Directive recorded and dispatched to {mentor_name} ({mentor_role_lbl})!")
+                                    st.rerun()
+                                else:
+                                    st.error(err or "Failed to issue directive.")
 
     # ─────────────────────────────────────────────────────────────
     # TAB 6: SCHEME CATALOGUE CRUD

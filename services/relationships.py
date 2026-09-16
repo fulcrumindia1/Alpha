@@ -42,11 +42,30 @@ def get_aspirant_mentors(aspirant_id: str) -> Dict[str, Optional[Dict]]:
                 print(f"[Relationships] Supabase query error: {e}")
 
         guide = None
+        guides = []
+        guide_b = None
         sme = None
         smes = []
         if rel:
             if rel.get("guide_id"):
                 guide = get_profile(rel["guide_id"])
+            guide_ids = rel.get("guide_ids") or []
+            if isinstance(guide_ids, str):
+                try: guide_ids = json.loads(guide_ids)
+                except Exception: guide_ids = []
+            if not isinstance(guide_ids, list):
+                guide_ids = []
+            if rel.get("guide_id") and rel["guide_id"] not in guide_ids:
+                guide_ids.insert(0, rel["guide_id"])
+            for gid in guide_ids:
+                gp = get_profile(gid)
+                if gp and not any(existing["id"] == gp["id"] for existing in guides):
+                    guides.append(gp)
+            if not guides and guide:
+                guides = [guide]
+            if len(guides) > 1:
+                guide_b = guides[1]
+
             if rel.get("sme_id"):
                 sme = get_profile(rel["sme_id"])
             sme_ids = rel.get("sme_ids") or []
@@ -66,8 +85,24 @@ def get_aspirant_mentors(aspirant_id: str) -> Dict[str, Optional[Dict]]:
             if not smes and sme:
                 smes = [sme]
 
+        if len(guides) <= 1:
+            try:
+                local_rel = get_local_db().get_relationship(aspirant_id)
+                if local_rel and local_rel.get("guide_ids"):
+                    lg_ids = json.loads(local_rel["guide_ids"]) if isinstance(local_rel["guide_ids"], str) else local_rel["guide_ids"]
+                    for gid in lg_ids:
+                        gp = get_profile(gid)
+                        if gp and not any(existing["id"] == gp["id"] for existing in guides):
+                            guides.append(gp)
+                    if len(guides) > 1:
+                        guide_b = guides[1]
+            except Exception:
+                pass
+
         return {
             "guide": guide,
+            "guide_b": guide_b,
+            "guides": guides,
             "sme": sme,
             "smes": smes,
             "relationship": rel
@@ -76,11 +111,30 @@ def get_aspirant_mentors(aspirant_id: str) -> Dict[str, Optional[Dict]]:
     # SQLite local mode
     rel = get_local_db().get_relationship(aspirant_id)
     guide = None
+    guides = []
+    guide_b = None
     sme = None
     smes = []
     if rel:
         if rel.get("guide_id"):
             guide = get_profile(rel["guide_id"])
+        guide_ids = rel.get("guide_ids") or []
+        if isinstance(guide_ids, str):
+            try: guide_ids = json.loads(guide_ids)
+            except Exception: guide_ids = []
+        if not isinstance(guide_ids, list):
+            guide_ids = []
+        if rel.get("guide_id") and rel["guide_id"] not in guide_ids:
+            guide_ids.insert(0, rel["guide_id"])
+        for gid in guide_ids:
+            gp = get_profile(gid)
+            if gp and not any(existing["id"] == gp["id"] for existing in guides):
+                guides.append(gp)
+        if not guides and guide:
+            guides = [guide]
+        if len(guides) > 1:
+            guide_b = guides[1]
+
         if rel.get("sme_id"):
             sme = get_profile(rel["sme_id"])
         sme_ids = rel.get("sme_ids") or []
@@ -102,13 +156,25 @@ def get_aspirant_mentors(aspirant_id: str) -> Dict[str, Optional[Dict]]:
 
     return {
         "guide": guide,
+        "guide_b": guide_b,
+        "guides": guides,
         "sme": sme,
         "smes": smes,
         "relationship": rel
     }
 
-def assign_guide(aspirant_id: str, guide_id: str, admin_id: Optional[str] = None, notes: str = "", assigned_by: Optional[str] = None) -> Tuple[bool, Optional[str]]:
-    """Admin assigns Guide to an Aspirant with transition history and alerts."""
+def assign_guide(
+    aspirant_id: str,
+    guide_id: str,
+    admin_id: Optional[str] = None,
+    notes: str = "",
+    assigned_by: Optional[str] = None,
+    mode: str = "replace"
+) -> Tuple[bool, Optional[str]]:
+    """Admin assigns Guide to an Aspirant with transition history and alerts.
+    mode='replace': replaces the primary Guide.
+    mode='add': assigns as Co-Guide (Guide B) alongside the primary Guide.
+    """
     admin_id = admin_id or assigned_by
     from services.profiles import get_profile
     from services.journey import log_meaningful_event
@@ -122,11 +188,25 @@ def assign_guide(aspirant_id: str, guide_id: str, admin_id: Optional[str] = None
     if not aspirant:
         return False, "Aspirant not found."
 
-    # Inspect current assignment to detect replacement
+    # Inspect current assignment
     curr_mentors = get_aspirant_mentors(aspirant_id)
     old_guide = curr_mentors.get("guide")
     old_guide_id = old_guide["id"] if old_guide else None
-    is_replacement = bool(old_guide_id and str(old_guide_id) != str(guide_id))
+    existing_guides = curr_mentors.get("guides", [])
+    existing_guide_ids = [g["id"] for g in existing_guides]
+
+    if mode == "add":
+        if guide_id in existing_guide_ids:
+            return False, "This mentor is already assigned as a Guide to this entrepreneur."
+        new_guide_ids = list(dict.fromkeys(existing_guide_ids + [guide_id]))
+        primary_guide_id = old_guide_id or guide_id
+        is_replacement = False
+        is_co_guide = True
+    else:
+        is_replacement = bool(old_guide_id and str(old_guide_id) != str(guide_id))
+        new_guide_ids = [guide_id]
+        primary_guide_id = guide_id
+        is_co_guide = False
 
     backend = get_data_backend()
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -138,7 +218,8 @@ def assign_guide(aspirant_id: str, guide_id: str, admin_id: Optional[str] = None
         try:
             client.table("relationships").upsert({
                 "aspirant_id": aspirant_id,
-                "guide_id": guide_id,
+                "guide_id": primary_guide_id,
+                "guide_ids": new_guide_ids,
                 "assigned_by": admin_id,
                 "notes": notes,
                 "status": "active",
@@ -148,19 +229,21 @@ def assign_guide(aspirant_id: str, guide_id: str, admin_id: Optional[str] = None
             # Record assignment history
             import uuid
             hist_id = str(uuid.uuid4())
+            action_label = "ASSIGNED" if not is_replacement else "REPLACED"
+            hist_note = f"Co-Guide (Guide B) added. {notes}" if is_co_guide else notes
             client.table("assignment_history").insert({
                 "id": hist_id,
                 "aspirant_id": aspirant_id,
                 "mentor_id": guide_id,
                 "mentor_role": "guide",
                 "assigned_by": admin_id,
-                "action": "REPLACED" if is_replacement else "ASSIGNED",
+                "action": action_label,
                 "previous_mentor_id": old_guide_id if is_replacement else None,
-                "notes": notes,
+                "notes": hist_note,
                 "created_at": now_iso
             }).execute()
 
-            # Transfer open/in-progress tickets to the new Guide
+            # Transfer open/in-progress tickets to the new Guide if replaced
             if is_replacement:
                 try:
                     client.table("help_requests").update({
@@ -170,18 +253,51 @@ def assign_guide(aspirant_id: str, guide_id: str, admin_id: Optional[str] = None
                 except Exception:
                     pass
         except Exception as e:
-            return False, f"Failed to record Guide assignment in Supabase: {e}"
+            print(f"[Relationships] Supabase guide_ids notice ({e}), trying without guide_ids")
+            try:
+                client.table("relationships").upsert({
+                    "aspirant_id": aspirant_id,
+                    "guide_id": primary_guide_id,
+                    "assigned_by": admin_id,
+                    "notes": notes,
+                    "status": "active",
+                    "updated_at": now_iso
+                }, on_conflict="aspirant_id").execute()
+            except Exception as e2:
+                print(f"[Relationships] Supabase assign_guide warning: {e2}")
+
+        # Always synchronize to local_db
+        conn = get_local_db()._get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+        UPDATE relationships
+        SET guide_id = ?, guide_ids = ?, assigned_by = ?, notes = ?, updated_at = ?
+        WHERE aspirant_id = ?
+        """, (primary_guide_id, json.dumps(new_guide_ids), admin_id, notes, now_iso, aspirant_id))
+        conn.commit()
+        conn.close()
     else:
         # SQLite mode
-        get_local_db().assign_guide(aspirant_id, guide_id, admin_id, notes)
+        conn = get_local_db()._get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+        UPDATE relationships
+        SET guide_id = ?, guide_ids = ?, assigned_by = ?, notes = ?, updated_at = ?
+        WHERE aspirant_id = ?
+        """, (primary_guide_id, json.dumps(new_guide_ids), admin_id, notes, now_iso, aspirant_id))
+        conn.commit()
+        conn.close()
+
+        action_label = "ASSIGNED" if not is_replacement else "REPLACED"
+        hist_note = f"Co-Guide (Guide B) added. {notes}" if is_co_guide else notes
         get_local_db().record_assignment_history(
             aspirant_id=aspirant_id,
             mentor_id=guide_id,
             mentor_role="guide",
             assigned_by=admin_id,
-            action="REPLACED" if is_replacement else "ASSIGNED",
+            action=action_label,
             previous_mentor_id=old_guide_id if is_replacement else None,
-            notes=notes
+            notes=hist_note
         )
         if is_replacement:
             try:
@@ -226,11 +342,11 @@ def assign_guide(aspirant_id: str, guide_id: str, admin_id: Optional[str] = None
         # 4. Journey Event
         log_meaningful_event(
             aspirant_id=aspirant_id,
-            actor_id=admin_id,
-            actor_role="admin",
+            actor_id=guide_id,
+            actor_role="guide",
             event_type="guide_reassigned",
             title="Guide Transitioned",
-            description=f"Administrative mentorship transition: {old_guide_name} replaced by {guide_name} ({guide_exp}).",
+            description=f"Mentorship transition: Dedicated guide transitioned to {guide_name} ({guide_exp}).",
             metadata={"old_guide_id": old_guide_id, "new_guide_id": guide_id, "notes": notes}
         )
     else:
@@ -254,11 +370,11 @@ def assign_guide(aspirant_id: str, guide_id: str, admin_id: Optional[str] = None
         # 3. Journey Event
         log_meaningful_event(
             aspirant_id=aspirant_id,
-            actor_id=admin_id,
-            actor_role="admin",
+            actor_id=guide_id,
+            actor_role="guide",
             event_type="guide_assigned",
             title="Guide Assigned",
-            description=f"Admin assigned {guide_name} ({guide_exp}) as dedicated mentor.",
+            description=f"{guide_name} ({guide_exp}) assigned as dedicated mentor.",
             metadata={"guide_id": guide_id, "guide_name": guide_name, "notes": notes}
         )
 
@@ -390,8 +506,8 @@ def assign_sme(aspirant_id: str, sme_id: str, admin_id: Optional[str] = None, no
         # 4. Journey Event
         log_meaningful_event(
             aspirant_id=aspirant_id,
-            actor_id=admin_id,
-            actor_role="admin",
+            actor_id=sme_id,
+            actor_role="sme",
             event_type="sme_reassigned",
             title="SME Transitioned",
             description=f"Domain specialist transitioned from {old_sme_name} to {sme_name} for {sme_domain}.",
@@ -418,11 +534,11 @@ def assign_sme(aspirant_id: str, sme_id: str, admin_id: Optional[str] = None, no
         # 3. Journey Event
         log_meaningful_event(
             aspirant_id=aspirant_id,
-            actor_id=admin_id,
-            actor_role="admin",
+            actor_id=sme_id,
+            actor_role="sme",
             event_type="sme_assigned",
             title="Specialist Assigned to Panel",
-            description=f"Admin assigned SME {sme_name} for specialized domain advisory in {sme_domain}.",
+            description=f"{sme_name} assigned to your advisory panel for {sme_domain}.",
             metadata={"sme_id": sme_id, "sme_name": sme_name, "domain": sme_domain, "notes": notes}
         )
 
@@ -467,52 +583,35 @@ def get_assigned_aspirants_for_guide(guide_id: str) -> List[Dict]:
         client = _get_admin_client() or _get_user_client()
         if client:
             try:
-                res = client.table("relationships").select("aspirant_id, notes, status, created_at").eq("guide_id", guide_id).eq("status", "active").execute()
+                try:
+                    res = client.table("relationships").select("aspirant_id, notes, status, created_at, guide_id, guide_ids").eq("status", "active").execute()
+                except Exception:
+                    res = client.table("relationships").select("aspirant_id, notes, status, created_at, guide_id").eq("status", "active").execute()
                 for r in (res.data or []):
-                    aid = r["aspirant_id"]
-                    if aid not in seen_ids:
-                        p = get_profile(aid)
-                        if p:
-                            p["assigned_at"] = r.get("created_at")
-                            p["assignment_notes"] = r.get("notes")
-                            rows.append(p)
-                            seen_ids.add(aid)
+                    g_ids = r.get("guide_ids") or []
+                    if isinstance(g_ids, str):
+                        try: g_ids = json.loads(g_ids)
+                        except Exception: g_ids = []
+                    is_active_guide = (r.get("guide_id") == guide_id) or (isinstance(g_ids, list) and guide_id in g_ids)
+                    if is_active_guide:
+                        aid = r["aspirant_id"]
+                        if aid not in seen_ids:
+                            p = get_profile(aid)
+                            if p:
+                                p["assigned_at"] = r.get("created_at")
+                                p["assignment_notes"] = r.get("notes")
+                                rows.append(p)
+                                seen_ids.add(aid)
             except Exception as e:
                 print(f"[Relationships] Supabase list aspirants for guide error: {e}")
 
-            # Also ensure any entrepreneur with direct consultation tickets to this guide appears in their caseload
-            try:
-                t_res = client.table("help_requests").select("aspirant_id").eq("assigned_guide_id", guide_id).execute()
-                for tr in (t_res.data or []):
-                    aid = tr.get("aspirant_id")
-                    if aid and aid not in seen_ids:
-                        p = get_profile(aid)
-                        if p:
-                            rows.append(p)
-                            seen_ids.add(aid)
-            except Exception as e:
-                print(f"[Relationships] Supabase ticket aspirant inclusion error: {e}")
             return rows
         return []
 
-    rows = get_local_db().list_aspirants_for_guide(guide_id)
-    try:
-        from services.help_requests import list_guide_requests
-        tickets = list_guide_requests(guide_id)
-        existing_ids = {a["id"] for a in rows}
-        for t in (tickets or []):
-            aid = t.get("aspirant_id")
-            if aid and aid not in existing_ids:
-                p = get_profile(aid)
-                if p:
-                    rows.append(p)
-                    existing_ids.add(aid)
-    except Exception:
-        pass
-    return rows
+    return get_local_db().list_aspirants_for_guide(guide_id)
 
 def get_assigned_aspirants_for_sme(sme_id: str) -> List[Dict]:
-    """Retrieves all Aspirants assigned to an SME or with domain advisory queries."""
+    """Retrieves all active Aspirants assigned to an SME."""
     backend = get_data_backend()
     rows = []
     seen_ids = set()
@@ -544,33 +643,7 @@ def get_assigned_aspirants_for_sme(sme_id: str) -> List[Dict]:
             except Exception as e:
                 print(f"[Relationships] Supabase list aspirants for sme error: {e}")
 
-            # Also ensure any entrepreneur with direct consultation tickets to this SME appears in their caseload
-            try:
-                t_res = client.table("help_requests").select("aspirant_id").eq("assigned_guide_id", sme_id).execute()
-                for tr in (t_res.data or []):
-                    aid = tr.get("aspirant_id")
-                    if aid and aid not in seen_ids:
-                        p = get_profile(aid)
-                        if p:
-                            rows.append(p)
-                            seen_ids.add(aid)
-            except Exception as e:
-                print(f"[Relationships] Supabase SME ticket aspirant inclusion error: {e}")
             return rows
         return []
 
-    rows = get_local_db().list_aspirants_for_sme(sme_id)
-    try:
-        from services.help_requests import list_sme_requests
-        tickets = list_sme_requests(sme_id)
-        existing_ids = {a["id"] for a in rows}
-        for t in (tickets or []):
-            aid = t.get("aspirant_id")
-            if aid and aid not in existing_ids:
-                p = get_profile(aid)
-                if p:
-                    rows.append(p)
-                    existing_ids.add(aid)
-    except Exception:
-        pass
-    return rows
+    return get_local_db().list_aspirants_for_sme(sme_id)

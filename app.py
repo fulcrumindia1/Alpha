@@ -127,7 +127,11 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
         [data-testid="stSidebarCollapsedControl"],
         [data-testid="collapsedControl"],
         [data-testid="stExpandSidebarButton"],
-        button[kind="header"] {
+        button[kind="header"],
+        [data-testid="stDeployButton"],
+        .stAppDeployButton,
+        #MainMenu,
+        footer {
             display: none !important;
             visibility: hidden !important;
         }
@@ -142,6 +146,25 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
         # For authenticated state: professional institutional clean light theme with dark sidebar
         st.markdown("""
         <style>
+        /* Keep stToolbar visible so Streamlit 1.56+ stExpandSidebarButton can render */
+        [data-testid="stToolbar"] {
+            display: flex !important;
+            visibility: visible !important;
+            background: transparent !important;
+        }
+
+        /* Hide technical clutter in toolbar and footer */
+        [data-testid="stDeployButton"],
+        .stAppDeployButton,
+        [data-testid="stToolbarActions"],
+        [data-testid="stStatusWidget"],
+        [data-testid="stDecoration"],
+        #MainMenu,
+        footer {
+            display: none !important;
+            visibility: hidden !important;
+        }
+
         /* Base page background and typography colors */
         .stApp {
             background-color: #F8FAFC !important;
@@ -319,48 +342,67 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
 
         /* Prominent Sidebar Toggle Button when sidebar is collapsed */
         [data-testid="stSidebarCollapsedControl"],
-        [data-testid="stExpandSidebarButton"] {
+        [data-testid="stExpandSidebarButton"],
+        [data-testid="collapsedControl"],
+        header[data-testid="stHeader"] button[kind="header"] {
             display: flex !important;
             visibility: visible !important;
+            opacity: 1 !important;
             position: fixed !important;
             top: 0.75rem !important;
             left: 0.75rem !important;
-            z-index: 99999 !important;
+            z-index: 999999 !important;
             background-color: #FFFFFF !important;
-            border: 1px solid #CBD5E1 !important;
+            border: 1.5px solid #CBD5E1 !important;
             border-radius: 8px !important;
             padding: 6px 10px !important;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12) !important;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12) !important;
             cursor: pointer !important;
             transition: all 0.2s ease !important;
         }
         [data-testid="stSidebarCollapsedControl"]:hover,
-        [data-testid="stExpandSidebarButton"]:hover {
+        [data-testid="stExpandSidebarButton"]:hover,
+        [data-testid="collapsedControl"]:hover,
+        header[data-testid="stHeader"] button[kind="header"]:hover {
             background-color: #F1F5F9 !important;
-            border-color: #94A3B8 !important;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18) !important;
+            border-color: #2563EB !important;
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.2) !important;
+            transform: translateY(-1px);
         }
         [data-testid="stSidebarCollapsedControl"] svg,
         [data-testid="stSidebarCollapsedControl"] span,
         [data-testid="stSidebarCollapsedControl"] *,
         [data-testid="stExpandSidebarButton"] svg,
         [data-testid="stExpandSidebarButton"] span,
-        [data-testid="stExpandSidebarButton"] * {
+        [data-testid="stExpandSidebarButton"] *,
+        [data-testid="collapsedControl"] svg,
+        [data-testid="collapsedControl"] span,
+        [data-testid="collapsedControl"] *,
+        header[data-testid="stHeader"] button[kind="header"] svg,
+        header[data-testid="stHeader"] button[kind="header"] span,
+        header[data-testid="stHeader"] button[kind="header"] * {
             fill: #0F172A !important;
             color: #0F172A !important;
         }
 
-        /* Sidebar Close Button inside sidebar */
+        /* Sidebar Close Button inside open sidebar */
         [data-testid="stSidebarCollapseButton"] {
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
             color: #E2E8F0 !important;
-            background: rgba(255, 255, 255, 0.08) !important;
+            background: rgba(255, 255, 255, 0.12) !important;
             border-radius: 6px !important;
+            cursor: pointer !important;
+        }
+        [data-testid="stSidebarCollapseButton"]:hover {
+            background: rgba(255, 255, 255, 0.22) !important;
         }
         [data-testid="stSidebarCollapseButton"] svg,
         [data-testid="stSidebarCollapseButton"] span,
         [data-testid="stSidebarCollapseButton"] * {
-            fill: #E2E8F0 !important;
-            color: #E2E8F0 !important;
+            fill: #FFFFFF !important;
+            color: #FFFFFF !important;
         }
 
         /* Role-specific tab navigation - Institutional Clean Light Tabs */
@@ -595,7 +637,7 @@ def main():
                     "🧭 Guides Management",
                     "🔬 SMEs Management",
                     "🤝 Mentorship Assignments",
-                    "💬 Help Requests Queue",
+                    "🏛️ Mentor Inquiries & Directives",
                     "🏛️ Scheme Catalogue"
                 ]
             else:

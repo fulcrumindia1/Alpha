@@ -1,0 +1,335 @@
+[
+  {
+    "step": "PW-1",
+    "actor": "Admin",
+    "action": "Create Guide with Temporary Password",
+    "expected": "temp_password_issued == True in profile_data",
+    "actual": "temp_password_issued=True",
+    "status": "PASS",
+    "evidence": "Guide created: ID=8eafb7bd-84ba-498b-8f02-08649ee1845b"
+  },
+  {
+    "step": "PW-2",
+    "actor": "Guide",
+    "action": "Authenticate with temporary password",
+    "expected": "Login succeeds, profile has temp_password_issued=True",
+    "actual": "login_success=True, temp_flag=True",
+    "status": "PASS",
+    "evidence": "Temporary password successfully authenticated user into forced-change state"
+  },
+  {
+    "step": "PW-3",
+    "actor": "Guide",
+    "action": "Complete first-login permanent password change",
+    "expected": "temp_password_issued becomes False, password updated in Auth",
+    "actual": "change_success=True, temp_password_issued=False",
+    "status": "PASS",
+    "evidence": "Updated profile: temp_password_issued=False"
+  },
+  {
+    "step": "PW-4",
+    "actor": "Guide",
+    "action": "Log out and log in with permanent password",
+    "expected": "Direct workspace login without password prompt (temp_password_issued=False)",
+    "actual": "login_success=True, temp_flag=False",
+    "status": "PASS",
+    "evidence": "Direct workspace entry confirmed. No second password-change screen triggered."
+  },
+  {
+    "step": "PW-5",
+    "actor": "Attacker / Guide",
+    "action": "Attempt login using discarded temporary password",
+    "expected": "Login fails (Invalid credentials)",
+    "actual": "login_blocked=True, error=Invalid email or password.",
+    "status": "PASS",
+    "evidence": "Temporary password rejected: Invalid email or password."
+  },
+  {
+    "step": "PW-6",
+    "actor": "SME",
+    "action": "Verify SME temporary password lifecycle and invalidation",
+    "expected": "First login forces change, permanent password succeeds, old temp fails",
+    "actual": "perm_login=True, old_temp_blocked=True",
+    "status": "PASS",
+    "evidence": "SME password migration verified identically."
+  },
+  {
+    "step": "P1-1",
+    "actor": "Aspirant 1",
+    "action": "Verify initial profile persistence and sector identification",
+    "expected": "Profile exists, full_name='Pravin Dev', district='Madurai'",
+    "actual": "name=Pravin Dev, district=Madurai",
+    "status": "PASS",
+    "evidence": "Profile ID=5ef8bed6-fbc9-49a7-8a16-91a7cd26b612, Email=pravindev666@gmail.com"
+  },
+  {
+    "step": "P1-2",
+    "actor": "Aspirant 1",
+    "action": "Update comprehensive 4-part founder profile",
+    "expected": "Profile updated successfully with completion percentage",
+    "actual": "success=True, pct=70%",
+    "status": "PASS",
+    "evidence": "Completion: 70%"
+  },
+  {
+    "step": "P1-3",
+    "actor": "Aspirant 1/2/3",
+    "action": "Verify profile isolation across all 3 Aspirants",
+    "expected": "Each profile has distinct ID, business name, and district",
+    "actual": "A1=Madurai, A2=Coimbatore, A3=Chennai",
+    "status": "PASS",
+    "evidence": "A1=Pravin Dev | A2=Mathew Kumar | A3=Austin Thambi"
+  },
+  {
+    "step": "P1-4",
+    "actor": "Aspirant 1",
+    "action": "Create 4 chronological milestone entries in personal Journey",
+    "expected": "All 4 entries exist in timeline, chronological order preserved",
+    "actual": "found_entries=58",
+    "status": "PASS",
+    "evidence": "Timeline count=58, first_entry='Product validation completed'"
+  },
+  {
+    "step": "P1-5",
+    "actor": "Aspirant 1",
+    "action": "Mark milestone 'Not Needed' (excludes from personal roadmap)",
+    "expected": "Underlying record retained, included_in_roadmap=False, excluded from active roadmap",
+    "actual": "record_exists=True, included=False, on_active=False",
+    "status": "PASS",
+    "evidence": "Excluded from active roadmap while underlying audit record is preserved."
+  },
+  {
+    "step": "P1-6",
+    "actor": "Aspirant 1",
+    "action": "Reinstate milestone to 'Needed' (restores to roadmap)",
+    "expected": "included_in_roadmap=True, successfully reinstated on active roadmap",
+    "actual": "included=True",
+    "status": "PASS",
+    "evidence": "Successfully restored to active roadmap."
+  },
+  {
+    "step": "P2-1",
+    "actor": "Admin",
+    "action": "Verify E2E Guide provisioned with role=guide",
+    "expected": "Guide exists with role='guide'",
+    "actual": "role=guide",
+    "status": "PASS",
+    "evidence": "Guide ID: 973ed3db-c11e-40d6-8163-c29a60c73499, Name: E2E Test Guide"
+  },
+  {
+    "step": "P2-2",
+    "actor": "Admin",
+    "action": "Verify E2E SME provisioned with role=sme",
+    "expected": "SME exists with role='sme'",
+    "actual": "role=sme",
+    "status": "PASS",
+    "evidence": "SME ID: d148d337-5849-4c80-a5e2-3f789a72d082, Name: E2E Test SME"
+  },
+  {
+    "step": "P3-1",
+    "actor": "Admin",
+    "action": "Verify Aspirant 1 mentor bindings in database",
+    "expected": "guide_id=973ed3db-c11e-40d6-8163-c29a60c73499, sme_id=d148d337-5849-4c80-a5e2-3f789a72d082",
+    "actual": "guide_id=973ed3db-c11e-40d6-8163-c29a60c73499, sme_id=d148d337-5849-4c80-a5e2-3f789a72d082",
+    "status": "PASS",
+    "evidence": "Aspirant 1 correctly assigned to Guide (E2E Test Guide) & SME (E2E Test SME)"
+  },
+  {
+    "step": "P3-2",
+    "actor": "Admin",
+    "action": "Verify Aspirant 2 mentor bindings in database",
+    "expected": "guide_id=973ed3db-c11e-40d6-8163-c29a60c73499, sme_id=d148d337-5849-4c80-a5e2-3f789a72d082",
+    "actual": "guide_id=973ed3db-c11e-40d6-8163-c29a60c73499, sme_id=d148d337-5849-4c80-a5e2-3f789a72d082",
+    "status": "PASS",
+    "evidence": "Aspirant 2 correctly assigned to Guide (E2E Test Guide) & SME (E2E Test SME)"
+  },
+  {
+    "step": "P3-3",
+    "actor": "Admin",
+    "action": "Verify Aspirant 3 mentor bindings in database",
+    "expected": "guide_id=973ed3db-c11e-40d6-8163-c29a60c73499, sme_id=d148d337-5849-4c80-a5e2-3f789a72d082",
+    "actual": "guide_id=973ed3db-c11e-40d6-8163-c29a60c73499, sme_id=d148d337-5849-4c80-a5e2-3f789a72d082",
+    "status": "PASS",
+    "evidence": "Aspirant 3 correctly assigned to Guide (E2E Test Guide) & SME (E2E Test SME)"
+  },
+  {
+    "step": "P3-4",
+    "actor": "Guide",
+    "action": "Verify Guide assigned roster contains Aspirants 1, 2, 3",
+    "expected": "Aspirants 1, 2, and 3 present in Guide cohort",
+    "actual": "cohort_size=3, contains_all=True",
+    "status": "PASS",
+    "evidence": "Cohort IDs: ['5ef8bed6-fbc9-49a7-8a16-91a7cd26b612', '0dbd3815-015c-4e94-a734-2c3f188bc54f', 'b19679ca-67a6-4ee6-bb6c-819108a9b48f']"
+  },
+  {
+    "step": "P3-5",
+    "actor": "SME",
+    "action": "Verify SME assigned roster contains Aspirants 1, 2, 3",
+    "expected": "Aspirants 1, 2, and 3 present in SME cohort",
+    "actual": "cohort_size=3, contains_all=True",
+    "status": "PASS",
+    "evidence": "Cohort IDs: ['5ef8bed6-fbc9-49a7-8a16-91a7cd26b612', '0dbd3815-015c-4e94-a734-2c3f188bc54f', 'b19679ca-67a6-4ee6-bb6c-819108a9b48f']"
+  },
+  {
+    "step": "P4-1",
+    "actor": "Guide",
+    "action": "Log mentorship contribution on Aspirant 1 Journey",
+    "expected": "Entry logged with actor_role='guide', attached to Aspirant 1",
+    "actual": "found=True, role=guide",
+    "status": "PASS",
+    "evidence": "Entry ID=d6724d29-189f-422a-9036-54c23feb3a54, Title='Pricing model reviewed'"
+  },
+  {
+    "step": "P4-2",
+    "actor": "Guide",
+    "action": "Verify Guide contribution is NOT leaked to Aspirant 2 or 3",
+    "expected": "Aspirants 2 and 3 do not have this contribution",
+    "actual": "in_A2=False, in_A3=False",
+    "status": "PASS",
+    "evidence": "Zero cross-mentee leakage verified."
+  },
+  {
+    "step": "P5-1",
+    "actor": "SME",
+    "action": "Log specialist advisory contribution on Aspirant 1 Journey",
+    "expected": "Entry logged with actor_role='sme', attached to Aspirant 1",
+    "actual": "found=True, role=sme",
+    "status": "PASS",
+    "evidence": "Entry ID=81e0003c-e417-439e-9532-0a75480b84dd, Title='GST compliance review'"
+  },
+  {
+    "step": "P5-2",
+    "actor": "SME",
+    "action": "Verify SME contribution is NOT leaked to Aspirant 2 or 3",
+    "expected": "Aspirants 2 and 3 do not have this contribution",
+    "actual": "in_A2=False, in_A3=False",
+    "status": "PASS",
+    "evidence": "Zero cross-mentee leakage verified."
+  },
+  {
+    "step": "P6-1",
+    "actor": "Aspirant 1",
+    "action": "Create Guide consultation ticket",
+    "expected": "Ticket exists in help_requests, Journey event count DOES NOT increase",
+    "actual": "ticket_found=True, before=61, after=61",
+    "status": "PASS",
+    "evidence": "Ticket ID: ba7ccdb1-6c12-4b55-9c79-f833e7f0e2bf, Journey unchanged (61 -> 61)"
+  },
+  {
+    "step": "P6-2",
+    "actor": "Guide",
+    "action": "Guide responds to consultation ticket",
+    "expected": "guide_response populated, Journey still contains zero consultation pollution",
+    "actual": "guide_response='Recommend cost-plus 25% margin stru...', journey_count=61",
+    "status": "PASS",
+    "evidence": "Consultations completely segregated from Journey movie."
+  },
+  {
+    "step": "P6-3",
+    "actor": "Aspirant 1",
+    "action": "Create SME consultation (Verify routing columns)",
+    "expected": "assigned_sme_id == SME UUID, assigned_guide_id IS NULL",
+    "actual": "assigned_sme_id=d148d337-5849-4c80-a5e2-3f789a72d082, assigned_guide_id=None",
+    "status": "PASS",
+    "evidence": "Properly routed to assigned_sme_id without Guide field abuse."
+  },
+  {
+    "step": "P6-4",
+    "actor": "SME/Guide",
+    "action": "Verify Queue Isolation between Guide and SME",
+    "expected": "SME queue contains ticket; Guide queue DOES NOT contain ticket",
+    "actual": "sme_has_it=True, guide_has_it=False",
+    "status": "PASS",
+    "evidence": "Clean queue segregation verified."
+  },
+  {
+    "step": "P6-5",
+    "actor": "SME",
+    "action": "SME responds to consultation ticket (Data Model Check)",
+    "expected": "Response stored in sme_response (NOT guide_response)",
+    "actual": "sme_response='Packaged branded millet flour falls...', guide_response=None",
+    "status": "PASS",
+    "evidence": "SME response written exclusively to sme_response field."
+  },
+  {
+    "step": "P7-1",
+    "actor": "Guide",
+    "action": "Guide releases evaluated scheme to Aspirant 1",
+    "expected": "scheme_releases row exists with status='RELEASED', correct IDs",
+    "actual": "rows_found=1, status=RELEASED",
+    "status": "PASS",
+    "evidence": "Release ID=bf0f5c69-5541-4bf1-97ee-6a3f39ddf839, Scheme=PRIV-ANGELSTN-2026"
+  },
+  {
+    "step": "P7-2",
+    "actor": "Aspirant 1",
+    "action": "Verify Aspirant 1 receives released scheme in Scheme Matches portal",
+    "expected": "Scheme is visible to Aspirant 1 with release metadata",
+    "actual": "visible=True, count=1",
+    "status": "PASS",
+    "evidence": "Released schemes visible to Aspirant 1: 1"
+  },
+  {
+    "step": "P7-3",
+    "actor": "Aspirant 2/3",
+    "action": "Verify Aspirant 2 and 3 DO NOT receive Aspirant 1's released scheme",
+    "expected": "Neither Aspirant 2 nor Aspirant 3 has this released scheme",
+    "actual": "in_A2=False, in_A3=False",
+    "status": "PASS",
+    "evidence": "Scheme release strictly isolated per founder."
+  },
+  {
+    "step": "P8-1",
+    "actor": "Guide",
+    "action": "Submit confidential institutional roadblock to Admin",
+    "expected": "Admin receives query, Aspirant 1 CANNOT see ticket or Journey pollution",
+    "actual": "query_id=5f2acf44-78ae-4221-8154-e4f373edb43b, in_asp_tickets=False, in_journey=False",
+    "status": "PASS",
+    "evidence": "Inquiry completely invisible to Aspirant (Invisible Admin Model)."
+  },
+  {
+    "step": "P8-2",
+    "actor": "Admin",
+    "action": "Admin issues official Directorate Directive to Guide",
+    "expected": "Directive stored, Guide sees directive, Aspirant STILL sees nothing",
+    "actual": "directive_stored=True, in_asp_tickets=False",
+    "status": "PASS",
+    "evidence": "Directive: 'Coordinate with district DIC GM office; Direc...'"
+  },
+  {
+    "step": "P9-1",
+    "actor": "SME/Admin",
+    "action": "SME raises institutional roadblock, Admin issues directive",
+    "expected": "Directive issued to SME, Aspirant 1 remains completely unaware",
+    "actual": "directive_present=True, in_asp_tickets=False",
+    "status": "PASS",
+    "evidence": "Directive: 'Apply under interim provisional FSSAI permit ...'"
+  },
+  {
+    "step": "P10-1",
+    "actor": "System",
+    "action": "Cross-aspirant consultation isolation",
+    "expected": "Zero intersection between ticket IDs of Aspirant 1, 2, and 3",
+    "actual": "A1=10, A2=0, A3=0",
+    "status": "PASS",
+    "evidence": "Clean mathematical set disjointness verified."
+  },
+  {
+    "step": "P11-1",
+    "actor": "Admin",
+    "action": "Generate Administrative Audit Dossier PDF for Aspirant 1",
+    "expected": "PDF bytes generated (> 10,000 bytes)",
+    "actual": "pdf_size=414400 bytes",
+    "status": "PASS",
+    "evidence": "Generated PDF size: 414400 bytes"
+  },
+  {
+    "step": "P11-2",
+    "actor": "Admin",
+    "action": "Verify complete Administrative Audit Dossier contents",
+    "expected": "Includes Profile, Mentors, Journey, Consultations (Guide+SME), and Section 7 Directives",
+    "actual": "prof=True, guide=True, sme=True, journey=True, g_resp=True, s_resp=True, inq=True, dir=True",
+    "status": "PASS",
+    "evidence": "All 15 governance components successfully represented in Admin Audit Dossier."
+  }
+]

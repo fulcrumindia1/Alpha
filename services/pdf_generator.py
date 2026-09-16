@@ -34,7 +34,7 @@ def _gather_aspirant_data(aspirant_id: str) -> Dict:
     from services.relationships import get_aspirant_mentors
     from services.schemes import get_released_schemes_for_aspirant, match_schemes_for_aspirant
     from services.journey import get_journey_timeline
-    from services.help_requests import list_requests
+    from services.help_requests import list_requests, list_mentor_admin_queries
 
     profile = get_profile(aspirant_id) or {}
     mentors = get_aspirant_mentors(aspirant_id) or {}
@@ -42,6 +42,7 @@ def _gather_aspirant_data(aspirant_id: str) -> Dict:
     matched_schemes = match_schemes_for_aspirant(aspirant_id, limit=15, min_score=50) or []
     journey_events = get_journey_timeline(aspirant_id) or []
     help_tickets = list_requests(aspirant_id=aspirant_id) or []
+    mentor_admin_queries = list_mentor_admin_queries(aspirant_id=aspirant_id) or []
 
     return {
         "profile": profile,
@@ -50,6 +51,7 @@ def _gather_aspirant_data(aspirant_id: str) -> Dict:
         "matched_schemes": matched_schemes,
         "journey_events": journey_events,
         "help_tickets": help_tickets,
+        "mentor_admin_queries": mentor_admin_queries,
     }
 
 
@@ -448,6 +450,7 @@ table {{ border-collapse: collapse; width: 100%; }}
             priority = _safe(t.get("priority", "MEDIUM"))
             created = str(t.get("created_at", ""))[:19]
             guide_resp = t.get("guide_response", "")
+            sme_resp = t.get("sme_response", "")
             admin_resp = t.get("admin_response", "")
 
             html_parts.append(f'''
@@ -464,6 +467,11 @@ table {{ border-collapse: collapse; width: 100%; }}
                 <div style="background:#F0FDF4;border-left:3px solid #10B981;padding:6px 10px;margin-top:6px;border-radius:0 4px 4px 0;font-size:11px;color:#166534;">
                     <strong>Guide Response:</strong> {_safe(guide_resp)}
                 </div>''')
+            if sme_resp:
+                html_parts.append(f'''
+                <div style="background:#FFFBEB;border-left:3px solid #F59E0B;padding:6px 10px;margin-top:6px;border-radius:0 4px 4px 0;font-size:11px;color:#92400E;">
+                    <strong>SME Specialist Advisory:</strong> {_safe(sme_resp)}
+                </div>''')
             if admin_resp:
                 html_parts.append(f'''
                 <div style="background:#EFF6FF;border-left:3px solid #3B82F6;padding:6px 10px;margin-top:4px;border-radius:0 4px 4px 0;font-size:11px;color:#1E40AF;">
@@ -473,6 +481,57 @@ table {{ border-collapse: collapse; width: 100%; }}
             html_parts.append('</div>')
     else:
         html_parts.append('<div class="card"><em>No support tickets raised by this Aspirant.</em></div>')
+
+    # ═══════ SECTION 7: ADMINISTRATIVE AUDIT TRAIL (CONFIDENTIAL) ═══════
+    mentor_queries = data.get("mentor_admin_queries") or []
+    html_parts.append('<div class="page-break"></div>')
+    html_parts.append(_section_header("CONFIDENTIAL ADMINISTRATIVE GOVERNANCE & DIRECTIVES", "🏛️"))
+    html_parts.append('''
+    <div style="font-size:11px;color:#64748B;margin-bottom:10px;font-style:italic;">
+        Privileged Directorate Records: Institutional roadblocks escalated by Guides/SMEs to Administration and official Directorate Directives. Invisible to the Aspirant.
+    </div>''')
+
+    if mentor_queries:
+        for mq in mentor_queries:
+            mq_status = mq.get("status", "PENDING_ADMIN")
+            s_bg, s_clr = ("#ECFDF5", "#065F46") if mq_status == "DIRECTIVE_ISSUED" else ("#FEF3C7", "#92400E")
+            subject = _safe(mq.get("subject"))
+            message = _safe(mq.get("message"))
+            priority = _safe(mq.get("priority", "MEDIUM"))
+            created = str(mq.get("created_at", ""))[:19]
+            req_role = _safe(str(mq.get("requester_role", "Mentor")).upper())
+            directive = mq.get("admin_directive") or mq.get("admin_response", "")
+            directive_at = str(mq.get("directive_issued_at", ""))[:19]
+
+            html_parts.append(f'''
+            <div class="ticket-card" style="background:#F8FAFC;border-left:4px solid #475569;margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div style="font-weight:700;font-size:12px;color:#0F172A;">{subject}</div>
+                    {_badge_html(mq_status, s_bg, s_clr)}
+                </div>
+                <div style="font-size:11px;color:#64748B;margin-top:3px;">
+                    Initiator: <strong>{req_role}</strong> · Priority: {priority} · Logged: {created}
+                </div>
+                <div style="font-size:11px;color:#334155;margin-top:6px;">
+                    <strong>Institutional Roadblock Context:</strong> {_safe(message)}
+                </div>''')
+
+            if directive:
+                html_parts.append(f'''
+                <div style="background:#F0FDF4;border-left:3px solid #16A34A;padding:8px 12px;margin-top:8px;border-radius:0 6px 6px 0;font-size:11px;color:#14532D;">
+                    <div style="font-weight:800;letter-spacing:0.5px;color:#15803D;margin-bottom:2px;">OFFICIAL DIRECTORATE DIRECTIVE:</div>
+                    <div>{_safe(directive)}</div>
+                    <div style="font-size:10px;color:#166534;margin-top:4px;">Issued: {directive_at}</div>
+                </div>''')
+            else:
+                html_parts.append('''
+                <div style="background:#FEF2F2;border-left:3px solid #EF4444;padding:6px 10px;margin-top:6px;border-radius:0 4px 4px 0;font-size:11px;color:#991B1B;">
+                    <strong>Status:</strong> Pending Administrative Directorate Review & Action
+                </div>''')
+
+            html_parts.append('</div>')
+    else:
+        html_parts.append('<div class="card"><em>No institutional mentor roadblocks or administrative directives recorded for this mentee.</em></div>')
 
     # ═══════ INSTITUTIONAL FOOTER ═══════
     html_parts.append(f'''
