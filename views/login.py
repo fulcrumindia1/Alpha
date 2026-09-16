@@ -292,37 +292,51 @@ def render_login_page():
 
         if is_recovery:
             st.markdown("""
-            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:10px; padding:1.5rem; margin-bottom:1.5rem; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
-                <h3 style="margin-top:0; color:#0F172A; font-size:1.2rem;">Set New Password</h3>
-                <p style="font-size:0.84rem; color:#64748B;">Enter a secure new password for your verified account.</p>
+            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:10px; padding:1.5rem; margin-bottom:1.25rem; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:0.4rem;">
+                    <span style="font-size:1.4rem;">🔑</span>
+                    <h3 style="margin:0; color:#0F172A; font-size:1.25rem; font-weight:700;">Set New Password</h3>
+                </div>
+                <p style="font-size:0.84rem; color:#64748B; margin:0;">Enter your registered email address and choose a secure new password for your account.</p>
             </div>
             """, unsafe_allow_html=True)
 
             with st.form("form_set_new_password"):
+                prefill_email = st.session_state.get("input_fp_email") or st.session_state.get("input_login_email") or ""
+                rec_email = st.text_input("Registered Email Address", value=prefill_email, placeholder="name@domain.in", key="rec_email")
                 new_p1 = st.text_input("New Password", type="password", placeholder="••••••••", key="rec_pwd1")
                 new_p2 = st.text_input("Confirm New Password", type="password", placeholder="••••••••", key="rec_pwd2")
                 submit_recovery = st.form_submit_button("UPDATE PASSWORD", use_container_width=True)
 
                 if submit_recovery:
-                    if not new_p1 or not new_p2:
+                    if not rec_email or not rec_email.strip():
+                        st.error("Please enter your registered email address.")
+                    elif not new_p1 or not new_p2:
                         st.error("Please enter and confirm your new password.")
                     elif new_p1 != new_p2:
                         st.error("Passwords do not match.")
                     elif len(new_p1) < 6:
                         st.error("Password must be at least 6 characters long.")
                     else:
-                        ok, err = complete_password_reset(new_p1, access_token=acc_token, refresh_token=ref_token)
+                        ok, err = complete_password_reset(new_p1, access_token=acc_token, refresh_token=ref_token, email=rec_email.strip())
                         if ok:
                             st.success("🎉 Password updated successfully! Please sign in with your new password.")
                             st.session_state.show_recovery_form = False
+                            st.session_state.input_login_email = rec_email.strip()
                             st.query_params.clear()
                         else:
                             st.error(err or "Failed to update password.")
 
-            if st.button("← Back to Sign In", key="btn_cancel_recovery"):
+            if st.button("← Back to Sign In", key="btn_cancel_recovery", use_container_width=True):
                 st.session_state.show_recovery_form = False
                 st.query_params.clear()
                 st.rerun()
+
+            st.markdown("""
+            <div style="text-align: center; margin-top: 1.25rem; font-size: 0.82rem; color: #475569;">
+                Contact System Maintainence in <a href="mailto:fulcrumindia1@gmail.com" style="color: #2563EB; font-weight: 600; text-decoration: none;">fulcrumindia1@gmail.com</a>
+            </div>
+            """, unsafe_allow_html=True)
 
             return
 
@@ -379,11 +393,27 @@ def render_login_page():
                                     st.error(err or "Failed to send reset email.")
                             else:
                                 st.warning("Please enter your email.")
+
+                    st.markdown("""
+                    <div style="border-top: 1px dashed #E2E8F0; margin-top: 0.9rem; padding-top: 0.75rem; text-align: center;">
+                        <span style="font-size:0.8rem; color:#64748B;">Already received the reset email or opened the link?</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("🔑 Set New Password Here →", key="btn_open_set_pwd", use_container_width=True):
+                        st.session_state.show_recovery_form = True
+                        st.rerun()
                 else:
                     st.info("In local development mode (SQLite), password resets via email are disabled. Please use the verified demo test accounts below or contact admin@fulcrum.in.")
 
+            # Contact System Maintenance notice requested by user
             st.markdown("""
-            <div style="text-align: center; margin-top: 1.5rem; font-size: 0.82rem; color: #64748B;">
+            <div style="text-align: center; margin-top: 0.85rem; margin-bottom: 0.5rem; font-size: 0.82rem; color: #475569;">
+                Contact System Maintainence in <a href="mailto:fulcrumindia1@gmail.com" style="color: #2563EB; font-weight: 600; text-decoration: none;">fulcrumindia1@gmail.com</a>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("""
+            <div style="text-align: center; margin-top: 1.25rem; font-size: 0.82rem; color: #64748B;">
                 <div style="color: #94A3B8; font-size: 0.76rem;">
                     Authorized access only · Aspirants, Guides, SMEs & Program Administrators
                 </div>

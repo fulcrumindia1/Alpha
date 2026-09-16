@@ -466,7 +466,7 @@ def send_password_reset(email: str) -> Tuple[bool, Optional[str]]:
     try:
         client.auth.reset_password_for_email(
             email,
-            {"redirect_to": "https://fulcrum-india.streamlit.app"}
+            {"redirect_to": "https://fulcrum-india.streamlit.app/?type=recovery"}
         )
         return True, None
     except Exception as e:
@@ -475,33 +475,107 @@ def send_password_reset(email: str) -> Tuple[bool, Optional[str]]:
 def complete_password_reset(
     new_password: str,
     access_token: Optional[str] = None,
-    refresh_token: Optional[str] = None
+    refresh_token: Optional[str] = None,
+    email: Optional[str] = None
 ) -> Tuple[bool, Optional[str]]:
-    """Updates user password following recovery redirect."""
+    """
+    Updates user password following recovery redirect or direct email password update.
+    Supports:
+    1. Supabase Auth token session update (if token available).
+    2. Direct Supabase Admin API password update by registered email.
+    3. SQLite local DB mirror update.
+    """
     if len(new_password) < 6:
         return False, "Password must be at least 6 characters long."
 
-    if get_data_backend() == "sqlite":
-        return False, "Password reset is only supported in Supabase mode."
+    clean_email = (email or "").strip().lower()
+    backend = get_data_backend()
 
+    if backend == "sqlite":
+        if not clean_email:
+            return False, "Please enter your registered email address."
+        from services.local_db import get_local_db_conn
+        import hashlib
+        pwd_hash = hashlib.sha256(new_password.encode("utf-8")).hexdigest()
+        try:
+            conn = get_local_db_conn()
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM profiles WHERE LOWER(email) = ?", (clean_email,))
+            row = cur.fetchone()
+            if not row:
+                conn.close()
+                return False, f"No registered account found with email: {clean_email}"
+            cur.execute("UPDATE profiles SET password_hash = ? WHERE LOWER(email) = ?", (pwd_hash, clean_email))
+            conn.commit()
+            conn.close()
+            return True, None
+        except Exception as e:
+            return False, f"Failed to update local password: {e}"
+
+    # Supabase mode
     client = get_supabase_client()
-    if not client:
-        return False, "Supabase client not available."
+    admin_client = get_supabase_admin_client()
 
     token = access_token or st.session_state.get("sb_access_token")
     ref_token = refresh_token or st.session_state.get("sb_refresh_token") or token
 
-    if token:
+    updated = False
+
+    # 1. Attempt token-based session update if token is present
+    if client and token:
         try:
             client.auth.set_session(token, ref_token or token)
+            res = client.auth.update_user({"password": new_password})
+            if res and getattr(res, "user", None):
+                updated = True
+        except Exception as e:
+            print(f"[Auth] Token-based update attempt notice: {e}")
+
+    # 2. Attempt Admin Client update by resolving registered email to user ID
+    if not updated and admin_client and clean_email:
+        try:
+            prof_res = admin_client.table("profiles").select("id").ilike("email", clean_email).execute()
+            user_id = None
+            if prof_res.data and len(prof_res.data) > 0:
+                user_id = prof_res.data[0].get("id")
+
+            if not user_id:
+                try:
+                    users_list = admin_client.auth.admin.list_users()
+                    for u in users_list:
+                        if getattr(u, "email", "").lower() == clean_email:
+                            user_id = getattr(u, "id", None)
+                            break
+                except Exception:
+                    pass
+
+            if user_id:
+                admin_client.auth.admin.update_user_by_id(user_id, {"password": new_password})
+                updated = True
+            else:
+                return False, f"No registered account found with email: {clean_email}. Please check your email address."
+        except Exception as e:
+            return False, f"Failed to reset password in Supabase Auth: {e}"
+
+    if updated:
+        # Also keep local SQLite DB in sync
+        try:
+            from services.local_db import get_local_db_conn
+            import hashlib
+            pwd_hash = hashlib.sha256(new_password.encode("utf-8")).hexdigest()
+            conn = get_local_db_conn()
+            cur = conn.cursor()
+            cur.execute("UPDATE profiles SET password_hash = ? WHERE LOWER(email) = ?", (pwd_hash, clean_email))
+            conn.commit()
+            conn.close()
         except Exception:
             pass
-
-    try:
-        client.auth.update_user({"password": new_password})
         return True, None
-    except Exception as e:
-        return False, f"Failed to update password: {e}"
+
+    if not clean_email and not token:
+        return False, "Please enter your registered email address."
+
+    return False, "Unable to update password. Please verify your registered email address or request a new reset link."
 
 def complete_first_login_password_change(
     user_id: str,
