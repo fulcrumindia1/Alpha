@@ -334,7 +334,7 @@ def render_login_page():
 
             st.markdown("""
             <div style="text-align: center; margin-top: 1.25rem; font-size: 0.82rem; color: #475569;">
-                Contact System Maintainence in <a href="mailto:fulcrumindia1@gmail.com" style="color: #2563EB; font-weight: 600; text-decoration: none;">fulcrumindia1@gmail.com</a>
+                Contact System Maintainence in <a href="mailto:fulcrumindia1@gmail.com" style="color: #2563EB; font-weight: 600; text-decoration: none;">fulcrumindia1@gmail.com</a> for login issues
             </div>
             """, unsafe_allow_html=True)
 
@@ -408,7 +408,7 @@ def render_login_page():
             # Contact System Maintenance notice requested by user
             st.markdown("""
             <div style="text-align: center; margin-top: 0.85rem; margin-bottom: 0.5rem; font-size: 0.82rem; color: #475569;">
-                Contact System Maintainence in <a href="mailto:fulcrumindia1@gmail.com" style="color: #2563EB; font-weight: 600; text-decoration: none;">fulcrumindia1@gmail.com</a>
+                Contact System Maintainence in <a href="mailto:fulcrumindia1@gmail.com" style="color: #2563EB; font-weight: 600; text-decoration: none;">fulcrumindia1@gmail.com</a> for login issues
             </div>
             """, unsafe_allow_html=True)
 
