@@ -229,31 +229,6 @@ def render_login_page():
     </style>
     """, unsafe_allow_html=True)
 
-    import streamlit.components.v1 as components
-
-    # Client-side hash bridge: converts Supabase email links like #access_token=...&type=recovery into Streamlit ?access_token=...&type=recovery
-    components.html("""
-    <script>
-    (function() {
-        try {
-            const topLoc = window.parent.location;
-            if (topLoc.hash && topLoc.hash.length > 1) {
-                const hash = topLoc.hash.substring(1);
-                const params = new URLSearchParams(hash);
-                if (params.get('type') || params.get('access_token')) {
-                    const url = new URL(topLoc.href);
-                    url.search = '?' + hash;
-                    url.hash = '';
-                    topLoc.replace(url.toString());
-                }
-            }
-        } catch(e) {
-            console.error("Hash bridge error:", e);
-        }
-    })();
-    </script>
-    """, height=0, width=0)
-
     # Check query parameters for email confirmation or password recovery
     query_params = st.query_params
     auth_type = query_params.get("type", "")
