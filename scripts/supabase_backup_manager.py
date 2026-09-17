@@ -200,6 +200,36 @@ def restore_supabase(zip_file_path: str):
             print(f" Backup created at: {meta.get('timestamp')}")
             print(f" Total records in backup: {meta.get('total_records')}")
 
+        # Pre-provision Auth Users if restoring into a fresh/new Supabase project
+        auth_file = os.path.join(temp_extract_dir, "auth_users.json")
+        if os.path.exists(auth_file):
+            try:
+                with open(auth_file, "r", encoding="utf-8") as f:
+                    auth_users = json.load(f)
+                existing_ids = set()
+                try:
+                    current_users = admin.auth.admin.list_users()
+                    existing_ids = {getattr(u, "id", "") for u in current_users}
+                except Exception:
+                    pass
+
+                for au in auth_users:
+                    u_id = au.get("id")
+                    u_email = au.get("email")
+                    if u_id and u_id not in existing_ids:
+                        try:
+                            admin.auth.admin.create_user({
+                                "id": u_id,
+                                "email": u_email,
+                                "email_confirm": True,
+                                "user_metadata": au.get("user_metadata") or {}
+                            })
+                            print(f"  ✓ Provisioned Auth account for new project: {u_email}")
+                        except Exception:
+                            pass
+            except Exception as e:
+                print(f"  Notice during auth pre-provision: {e}")
+
         # Restore tables in dependency order
         for table in BACKUP_TABLES:
             table_file = os.path.join(temp_extract_dir, f"{table}.json")
@@ -394,6 +424,98 @@ def restore_to_sqlite(zip_file_path: str):
     finally:
         conn.close()
         shutil.rmtree(temp_extract_dir, ignore_errors=True)
+
+
+def export_database_to_dict():
+    """Fetches all Supabase tables and auth metadata into a single Python dict for UI/JSON export."""
+    admin = get_supabase_admin_client()
+    if not admin:
+        return {"error": "Supabase Admin Client unavailable."}
+
+    data = {
+        "metadata": {
+            "app": "FULCRUM-INDIA",
+            "version": "1.0",
+            "exported_at": datetime.now().isoformat(),
+            "tables": {},
+            "total_records": 0,
+        },
+        "auth_users": [],
+        "tables": {},
+    }
+
+    # Auth users
+    try:
+        users = admin.auth.admin.list_users()
+        for u in users:
+            data["auth_users"].append({
+                "id": str(getattr(u, "id", "")),
+                "email": getattr(u, "email", ""),
+                "role": getattr(u, "role", ""),
+                "created_at": str(getattr(u, "created_at", "")),
+                "user_metadata": getattr(u, "user_metadata", {}) or {},
+            })
+    except Exception as e:
+        print(f"[Backup] Auth users export notice: {e}")
+
+    total_records = 0
+    for table in BACKUP_TABLES:
+        try:
+            records = []
+            page_size = 1000
+            offset = 0
+            while True:
+                res = admin.table(table).select("*").range(offset, offset + page_size - 1).execute()
+                batch = res.data or []
+                records.extend(batch)
+                if len(batch) < page_size:
+                    break
+                offset += page_size
+            data["tables"][table] = records
+            data["metadata"]["tables"][table] = len(records)
+            total_records += len(records)
+        except Exception as e:
+            data["tables"][table] = []
+            data["metadata"]["tables"][table] = f"Error: {e}"
+
+    data["metadata"]["total_records"] = total_records
+    return data
+
+
+def import_database_from_dict(data: dict):
+    """Restores database from a parsed export dictionary into Supabase with upsert protection."""
+    admin = get_supabase_admin_client()
+    if not admin:
+        return {"error": "Supabase Admin Client unavailable."}
+
+    tables_data = data.get("tables", {})
+    if not tables_data and any(t in data for t in BACKUP_TABLES):
+        tables_data = {t: data[t] for t in BACKUP_TABLES if t in data}
+
+    results = {"success": True, "restored": {}, "errors": {}}
+    total_restored = 0
+
+    for table in BACKUP_TABLES:
+        records = tables_data.get(table, [])
+        if not records:
+            continue
+
+        batch_size = 100
+        success_count = 0
+        for i in range(0, len(records), batch_size):
+            batch = records[i:i + batch_size]
+            try:
+                admin.table(table).upsert(batch, on_conflict="id").execute()
+                success_count += len(batch)
+            except Exception as e:
+                results["errors"][table] = str(e)
+                print(f"[Restore] Upsert error on '{table}': {e}")
+
+        results["restored"][table] = success_count
+        total_restored += success_count
+
+    results["total_restored"] = total_restored
+    return results
 
 
 if __name__ == "__main__":
