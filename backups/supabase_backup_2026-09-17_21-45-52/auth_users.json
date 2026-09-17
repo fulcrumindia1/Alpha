@@ -1,0 +1,154 @@
+[
+  {
+    "id": "a5aefe59-8892-4cca-998c-8ad20b88990f",
+    "email": "pravin60666@gmail.com",
+    "role": "authenticated",
+    "created_at": "2026-09-16 21:00:15.073350+00:00",
+    "last_sign_in_at": "2026-09-16 21:00:43.219882+00:00",
+    "user_metadata": {
+      "district": "Erode",
+      "email_verified": true,
+      "full_name": "Pravin60666",
+      "phone": "6369007908",
+      "role": "guide"
+    }
+  },
+  {
+    "id": "d148d337-5849-4c80-a5e2-3f789a72d082",
+    "email": "e2e.sme@fulcrum-test.local",
+    "role": "authenticated",
+    "created_at": "2026-09-16 15:46:17.444068+00:00",
+    "last_sign_in_at": "2026-09-16 18:01:18.664730+00:00",
+    "user_metadata": {
+      "district": "Chennai",
+      "email_verified": true,
+      "full_name": "E2E Test SME",
+      "phone": "9888888882",
+      "role": "sme"
+    }
+  },
+  {
+    "id": "973ed3db-c11e-40d6-8163-c29a60c73499",
+    "email": "e2e.guide@fulcrum-test.local",
+    "role": "authenticated",
+    "created_at": "2026-09-16 15:46:15.367464+00:00",
+    "last_sign_in_at": "2026-09-16 18:01:15.587082+00:00",
+    "user_metadata": {
+      "district": "Madurai",
+      "email_verified": true,
+      "full_name": "E2E Test Guide",
+      "phone": "9888888881",
+      "role": "guide"
+    }
+  },
+  {
+    "id": "b19679ca-67a6-4ee6-bb6c-819108a9b48f",
+    "email": "austinthambi85@gmail.com",
+    "role": "authenticated",
+    "created_at": "2026-09-16 15:45:48.634697+00:00",
+    "last_sign_in_at": "2026-09-16 20:18:50.884590+00:00",
+    "user_metadata": {
+      "district": "Chennai",
+      "email_verified": true,
+      "full_name": "Austin Thambi",
+      "role": "aspirant"
+    }
+  },
+  {
+    "id": "0dbd3815-015c-4e94-a734-2c3f188bc54f",
+    "email": "mathew60666@gmail.com",
+    "role": "authenticated",
+    "created_at": "2026-09-16 15:45:47.782877+00:00",
+    "last_sign_in_at": "2026-09-17 10:39:20.142277+00:00",
+    "user_metadata": {
+      "district": "Coimbatore",
+      "email_verified": true,
+      "full_name": "Mathew Kumar",
+      "role": "aspirant"
+    }
+  },
+  {
+    "id": "8a575837-d5dc-4710-aa71-e343ead6c5b0",
+    "email": "manicktie@gmail.com",
+    "role": "authenticated",
+    "created_at": "2026-09-14 17:43:52.358296+00:00",
+    "last_sign_in_at": "2026-09-14 17:43:56.534984+00:00",
+    "user_metadata": {
+      "email_verified": true,
+      "full_name": "Manick",
+      "role": "admin"
+    }
+  },
+  {
+    "id": "4c37b277-44e5-4949-862a-e754490bc318",
+    "email": "ravi.kumar@milletfoods.in",
+    "role": "authenticated",
+    "created_at": "2026-09-14 17:35:42.263426+00:00",
+    "last_sign_in_at": "2026-09-16 20:50:03.589761+00:00",
+    "user_metadata": {
+      "district": "Madurai",
+      "email_verified": true,
+      "full_name": "Ravi Kumar",
+      "phone": "9876543210",
+      "role": "aspirant"
+    }
+  },
+  {
+    "id": "083e04f3-5084-4ca8-a91d-cbf4e4294805",
+    "email": "kumar.sme@fulcrum.in",
+    "role": "authenticated",
+    "created_at": "2026-09-14 17:35:41.814159+00:00",
+    "last_sign_in_at": "2026-09-16 20:57:25.016349+00:00",
+    "user_metadata": {
+      "district": "Madurai",
+      "email_verified": true,
+      "full_name": "Kumar S.",
+      "phone": "9840654321",
+      "role": "sme"
+    }
+  },
+  {
+    "id": "e44ba23e-05df-4c24-b831-4e38e38d3b27",
+    "email": "rajendran@fulcrum.in",
+    "role": "authenticated",
+    "created_at": "2026-09-14 17:35:41.369071+00:00",
+    "last_sign_in_at": "2026-09-16 20:54:40.929077+00:00",
+    "user_metadata": {
+      "district": "Chennai",
+      "email_verified": true,
+      "full_name": "Rajendran Natarajan",
+      "phone": "9840123456",
+      "role": "guide"
+    }
+  },
+  {
+    "id": "f8c6a629-f5f8-4777-a070-2bfa9181b538",
+    "email": "admin@fulcrum.in",
+    "role": "authenticated",
+    "created_at": "2026-09-14 17:31:07.150047+00:00",
+    "last_sign_in_at": "2026-09-16 21:16:01.872875+00:00",
+    "user_metadata": {
+      "district": "Chennai",
+      "email_verified": true,
+      "full_name": "Fulcrum Administrator",
+      "phone": "9876543213",
+      "role": "admin"
+    }
+  },
+  {
+    "id": "5ef8bed6-fbc9-49a7-8a16-91a7cd26b612",
+    "email": "pravindev666@gmail.com",
+    "role": "authenticated",
+    "created_at": "2026-09-14 09:52:13.014201+00:00",
+    "last_sign_in_at": "2026-09-16 21:15:45.297080+00:00",
+    "user_metadata": {
+      "district": "Madurai",
+      "email": "pravindev666@gmail.com",
+      "email_verified": true,
+      "full_name": "Pravin Dev",
+      "phone_verified": false,
+      "role": "aspirant",
+      "sub": "5ef8bed6-fbc9-49a7-8a16-91a7cd26b612"
+    }
+  }
+]
