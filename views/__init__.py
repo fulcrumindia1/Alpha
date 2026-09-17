@@ -1,0 +1,3 @@
+"""
+views package initialization
+"""
