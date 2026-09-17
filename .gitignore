@@ -16,3 +16,7 @@ __pycache__/
 
 # Streamlit runtime
 .streamlit/*.log
+
+# Database Backups
+backups/*.zip
+backups/temp_*
