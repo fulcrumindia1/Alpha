@@ -21,18 +21,6 @@ def _safe_esc(val, default=""):
         return default
     return html.escape(str(val))
 
-def _safe_tabs(tab_labels, key=None, default=None):
-    """Safely creates tabs with key, on_change, and default support across Streamlit versions."""
-    sig = inspect.signature(st.tabs)
-    kwargs = {}
-    if "key" in sig.parameters and key is not None:
-        kwargs["key"] = key
-        if "on_change" in sig.parameters:
-            kwargs["on_change"] = "rerun"
-    if "default" in sig.parameters and default is not None and default in tab_labels:
-        if key not in st.session_state or st.session_state.get(key) not in tab_labels:
-            kwargs["default"] = default
-    return st.tabs(tab_labels, **kwargs)
 from services.profiles import get_profile, update_aspirant_profile
 from services.relationships import get_aspirant_mentors
 from services.journey import get_journey_timeline, add_manual_aspirant_entry, soft_delete_event, get_standard_role_label, toggle_event_roadmap_inclusion
@@ -80,14 +68,14 @@ def render_aspirant_portal(user_profile: dict):
     """, unsafe_allow_html=True)
 
     # Navigation Tabs
-    tabs = _safe_tabs([
+    tabs = st.tabs([
         "📊 Overview",
         "👤 My Profile",
         "🎬 My Journey",
         "🤝 My Mentors",
         "🏦 Scheme Matches",
         "🤝 Consult a Guide or SME"
-    ], key="aspirant_portal_main_tabs")
+    ])
 
     # ─────────────────────────────────────────────────────────────
     # TAB 1: OVERVIEW
@@ -714,7 +702,6 @@ def render_aspirant_portal(user_profile: dict):
                         category_detail=h_cat_detail.strip() if h_cat_detail else None
                     )
                     if req:
-                        st.session_state["aspirant_portal_main_tabs"] = "🤝 Consult a Guide or SME"
                         st.success(f"Consultation request submitted! Routed directly to your {target_person}.")
                         st.rerun()
                     else:

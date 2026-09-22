@@ -19,18 +19,6 @@ def _safe_esc(val, default=""):
         return default
     return html.escape(str(val))
 
-def _safe_tabs(tab_labels, key=None, default=None):
-    """Safely creates tabs with key, on_change, and default support across Streamlit versions."""
-    sig = inspect.signature(st.tabs)
-    kwargs = {}
-    if "key" in sig.parameters and key is not None:
-        kwargs["key"] = key
-        if "on_change" in sig.parameters:
-            kwargs["on_change"] = "rerun"
-    if "default" in sig.parameters and default is not None and default in tab_labels:
-        if key not in st.session_state or st.session_state.get(key) not in tab_labels:
-            kwargs["default"] = default
-    return st.tabs(tab_labels, **kwargs)
 from services.relationships import get_assigned_aspirants_for_sme, get_assignment_history, get_aspirant_mentors
 from services.profiles import get_profile, update_mentor_profile
 from services.journey import get_journey_timeline, add_sme_contribution, soft_delete_event, get_standard_role_label
@@ -107,13 +95,13 @@ def render_sme_portal(user_profile: dict):
                 open_cnt = sum(1 for t in asp_tickets if t.get("status") in ["OPEN", "IN_PROGRESS", "ACTION_REQUIRED"])
 
                 # 4 Dedicated Subtabs for Selected Aspirant (No Scheme Matches for SME!)
-                subtab_key = f"sme_subtabs_{selected_asp_id}"
-                subtabs = _safe_tabs([
+                consult_label = "💬 Consultations"
+                subtabs = st.tabs([
                     "👤 Profile",
                     "🎬 Journey",
                     "🤝 Guidance Team",
-                    "💬 Consultations"
-                ], key=subtab_key, default="👤 Profile")
+                    consult_label
+                ])
 
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 1: ASPIRANT PROFILE
@@ -222,7 +210,6 @@ def render_sme_portal(user_profile: dict):
                                         event_date=s_date.isoformat()
                                     )
                                     if ev:
-                                        st.session_state[subtab_key] = "🎬 Journey"
                                         st.success(f"Added domain guidance to {curr_asp['full_name']}'s Journey!")
                                         st.rerun()
                                     else:
@@ -286,7 +273,6 @@ def render_sme_portal(user_profile: dict):
                                 if event.get("actor_id") == sme_id and actor_role == "sme":
                                     if st.button("🗑️", key=f"sme_del_sub_{event['id']}", help="Delete your contribution"):
                                         soft_delete_event(event["id"], sme_id, "sme")
-                                        st.session_state[subtab_key] = "🎬 Journey"
                                         st.rerun()
 
                 # ─────────────────────────────────────────────────────────
@@ -382,7 +368,6 @@ def render_sme_portal(user_profile: dict):
                                         category=sc_cat
                                     )
                                     if req:
-                                        st.session_state[subtab_key] = "💬 Consultations"
                                         st.success(f"Advisory notice dispatched to {curr_asp['full_name']}!")
                                         st.rerun()
                                     else:
@@ -452,7 +437,6 @@ def render_sme_portal(user_profile: dict):
                                             else:
                                                 ok, err = sme_respond_request(t["id"], sme_id, new_sme_st, sme_resp_text.strip())
                                                 if ok:
-                                                    st.session_state[subtab_key] = "💬 Consultations"
                                                     st.success("Advisory response recorded and student notified!")
                                                     st.rerun()
                                                 else:
@@ -525,7 +509,6 @@ def render_sme_portal(user_profile: dict):
                                         priority=q_priority
                                     )
                                     if q_res:
-                                        st.session_state[subtab_key] = "💬 Consultations"
                                         st.success("Administrative request submitted to Program Directorate! Admin will issue official directives.")
                                         st.rerun()
                                     else:
