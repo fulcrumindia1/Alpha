@@ -306,6 +306,12 @@ class LocalDatabase:
         if "directive_issued_at" not in hr_cols:
             try: cur.execute("ALTER TABLE help_requests ADD COLUMN directive_issued_at TEXT")
             except Exception: pass
+        if "aspirant_response" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN aspirant_response TEXT")
+            except Exception: pass
+        if "aspirant_responded_at" not in hr_cols:
+            try: cur.execute("ALTER TABLE help_requests ADD COLUMN aspirant_responded_at TEXT")
+            except Exception: pass
         conn.commit()
 
         # Seed default demo accounts (Admin, Guide, SME, Aspirant) if missing
@@ -959,6 +965,73 @@ class LocalDatabase:
         SET status = ?, sme_response = ?, last_handled_at = ?, resolved_by = COALESCE(resolved_by, ?), updated_at = ?
         WHERE id = ? AND (assigned_sme_id = ? OR assigned_sme_id IS NULL)
         """, (status, sme_response, now_iso, resolved_by, now_iso, request_id, sme_id))
+        conn.commit()
+        changes = conn.total_changes
+        conn.close()
+        return changes > 0
+
+    def create_mentor_consultation(
+        self,
+        mentor_id: str,
+        mentor_role: str,
+        aspirant_id: str,
+        subject: str,
+        message: str,
+        priority: str = "MEDIUM",
+        category: str = "GENERAL",
+        category_detail: Optional[str] = None
+    ) -> Dict:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        import uuid
+        req_id = str(uuid.uuid4())
+        now_iso = datetime.now(timezone.utc).isoformat()
+        assigned_guide_id = mentor_id if mentor_role == "guide" else None
+        assigned_sme_id = mentor_id if mentor_role == "sme" else None
+        target_role = mentor_role
+        cur.execute("""
+        INSERT INTO help_requests (
+            id, aspirant_id, subject, message, priority, status,
+            assigned_guide_id, assigned_sme_id, category, target_role,
+            requester_id, requester_role, request_type, category_detail,
+            assigned_at, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, 'mentor_initiated', ?, ?, ?, ?)
+        """, (
+            req_id, aspirant_id, subject, message, priority,
+            assigned_guide_id, assigned_sme_id, category, target_role,
+            mentor_id, mentor_role, category_detail,
+            now_iso, now_iso, now_iso
+        ))
+        conn.commit()
+        conn.close()
+        return {
+            "id": req_id,
+            "aspirant_id": aspirant_id,
+            "subject": subject,
+            "message": message,
+            "priority": priority,
+            "status": "OPEN",
+            "assigned_guide_id": assigned_guide_id,
+            "assigned_sme_id": assigned_sme_id,
+            "category": category,
+            "target_role": target_role,
+            "requester_id": mentor_id,
+            "requester_role": mentor_role,
+            "request_type": "mentor_initiated",
+            "category_detail": category_detail,
+            "created_at": now_iso
+        }
+
+    def aspirant_respond_help_request(self, request_id: str, aspirant_id: str, response: str) -> bool:
+        conn = self._get_conn()
+        cur = conn.cursor()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cur.execute("""
+        UPDATE help_requests
+        SET status = 'IN_PROGRESS', aspirant_response = ?, aspirant_responded_at = ?, last_handled_at = ?, updated_at = ?
+        WHERE id = ? AND aspirant_id = ?
+        """, (response, now_iso, now_iso, now_iso, request_id, aspirant_id))
         conn.commit()
         changes = conn.total_changes
         conn.close()

@@ -18,7 +18,7 @@ from services.relationships import get_aspirant_mentors
 from services.journey import get_journey_timeline, add_manual_aspirant_entry, soft_delete_event, get_standard_role_label, toggle_event_roadmap_inclusion
 from services.schemes import get_released_schemes_for_aspirant
 from services.schemes_ui import render_fund_explorer_card
-from services.help_requests import create_request, list_requests
+from services.help_requests import create_request, list_requests, aspirant_respond_request
 from services.constants import (
     MASTER_SECTORS,
     MASTER_STAGES,
@@ -705,25 +705,69 @@ def render_aspirant_portal(user_profile: dict):
             st.info("No consultation requests submitted yet.")
         else:
             for r in my_reqs:
-                st_color = "#f59e0b" if r["status"] == "OPEN" else "#3b82f6" if r["status"] == "IN_PROGRESS" else "#10b981"
+                st_color = "#f59e0b" if r["status"] == "OPEN" else "#3b82f6" if r["status"] in ["IN_PROGRESS", "REPLIED"] else "#10b981"
                 if r.get("category") == "OTHERS" and r.get("category_detail"):
                     cat_badge = f"OTHERS: {r.get('category_detail')}"
                 else:
                     cat_badge = r.get("category", "GENERAL").replace("_", " ")
 
-                g_resp_html = f'<div style="background:#EFF6FF; border-left:3px solid #3B82F6; border:1px solid #BFDBFE; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#1E40AF; margin-top:0.5rem;"><strong>🧭 Guide Response:</strong> {r["guide_response"]}</div>' if r.get('guide_response') else ''
-                s_resp_html = f'<div style="background:#FFFBEB; border-left:3px solid #F59E0B; border:1px solid #FDE68A; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#92400E; margin-top:0.5rem;"><strong>🔬 SME Advisory Response:</strong> {r["sme_response"]}</div>' if r.get('sme_response') else ''
+                is_mentor_init = (r.get("request_type") == "mentor_initiated" or r.get("requester_role") in ("guide", "sme"))
+                req_role = r.get("requester_role") or ("guide" if r.get("assigned_guide_id") else "sme")
+
+                if is_mentor_init:
+                    if req_role == "guide":
+                        m_name = r.get("guide_name") or "Dedicated Guide"
+                        origin_badge = f'<span style="background:#ECFDF5; color:#059669; border:1px solid #A7F3D0; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px; margin-left:8px;">🧭 INITIATED BY GUIDE: {html.escape(m_name)}</span>'
+                        border_color = "#10B981"
+                    else:
+                        m_name = r.get("sme_name") or "Domain Specialist"
+                        origin_badge = f'<span style="background:#FFFBEB; color:#D97706; border:1px solid #FDE68A; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px; margin-left:8px;">🔬 INITIATED BY SME: {html.escape(m_name)}</span>'
+                        border_color = "#F59E0B"
+                else:
+                    target_name = r.get("sme_name") if r.get("target_role") == "sme" else (r.get("guide_name") or "Dedicated Guide")
+                    origin_badge = f'<span style="background:#F1F5F9; color:#475569; font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:4px; margin-left:8px;">TARGET: {html.escape(target_name)}</span>'
+                    border_color = "#E2E8F0"
+
+                g_resp_html = f'<div style="background:#EFF6FF; border-left:3px solid #3B82F6; border:1px solid #BFDBFE; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#1E40AF; margin-top:0.5rem;"><strong>🧭 Guide Response:</strong> {html.escape(r["guide_response"])}</div>' if r.get('guide_response') else ''
+                s_resp_html = f'<div style="background:#FFFBEB; border-left:3px solid #F59E0B; border:1px solid #FDE68A; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#92400E; margin-top:0.5rem;"><strong>🔬 SME Advisory Response:</strong> {html.escape(r["sme_response"])}</div>' if r.get('sme_response') else ''
+
+                asp_reply = r.get("aspirant_response") or (r.get("admin_response", "").replace("Aspirant Reply: ", "") if str(r.get("admin_response", "")).startswith("Aspirant Reply: ") else "")
+                asp_resp_html = f'<div style="background:#F0FDF4; border-left:3px solid #10B981; border:1px solid #BBF7D0; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#166534; margin-top:0.5rem;"><strong>🌱 Your Submitted Reply / Update:</strong> {html.escape(asp_reply)}</div>' if asp_reply else ''
 
                 card_html = (
-                    f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px; padding:1.25rem; margin-bottom:0.85rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">'
+                    f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid {border_color}; border-radius:12px; padding:1.25rem; margin-bottom:0.85rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">'
                     f'<div style="display:flex; justify-content:space-between; align-items:center;">'
-                    f'<div><strong style="color:#0F172A; font-size:1.05rem;">{r["subject"]}</strong>'
-                    f'<span style="background:#F1F5F9; color:#475569; font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:4px; margin-left:8px;">{cat_badge}</span></div>'
+                    f'<div><strong style="color:#0F172A; font-size:1.05rem;">{html.escape(r["subject"])}</strong>'
+                    f'<span style="background:#F1F5F9; color:#475569; font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:4px; margin-left:8px;">{cat_badge}</span>'
+                    f'{origin_badge}</div>'
                     f'<span style="background:{st_color}; color:#ffffff; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px;">{r["status"]}</span>'
                     f'</div>'
-                    f'<div style="color:#334155; font-size:0.9rem; margin:0.5rem 0;">{r["message"]}</div>'
+                    f'<div style="color:#334155; font-size:0.9rem; margin:0.5rem 0; line-height:1.45;">{html.escape(r["message"])}</div>'
                     f'{g_resp_html}'
                     f'{s_resp_html}'
+                    f'{asp_resp_html}'
                     f'</div>'
                 )
                 st.markdown(card_html, unsafe_allow_html=True)
+
+                # If this ticket was initiated by a mentor and the founder hasn't replied yet, provide inline reply form
+                if is_mentor_init and r.get("status") in ["OPEN", "ACTION_REQUIRED"] and not asp_reply:
+                    mentor_author = r.get("guide_name") if req_role == "guide" else (r.get("sme_name") or "Your Mentor")
+                    with st.expander(f"💬 Reply / Submit Updates to {mentor_author}", expanded=True):
+                        with st.form(f"form_asp_reply_{r['id']}"):
+                            asp_reply_text = st.text_area(
+                                f"Your Reply / Action Updates for {mentor_author} *",
+                                placeholder=f"Provide the requested information, clarification, or confirm action taken...",
+                                height=80,
+                                key=f"txt_asp_reply_{r['id']}"
+                            )
+                            if st.form_submit_button("🚀 SUBMIT REPLY TO MENTOR", type="primary"):
+                                if not asp_reply_text.strip():
+                                    st.warning("Please enter your reply.")
+                                else:
+                                    ok, err = aspirant_respond_request(r["id"], user_id, asp_reply_text.strip())
+                                    if ok:
+                                        st.success(f"Your reply has been submitted to {mentor_author}!")
+                                        st.rerun()
+                                    else:
+                                        st.error(err or "Failed to submit reply.")

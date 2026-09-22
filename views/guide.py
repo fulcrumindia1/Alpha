@@ -39,7 +39,8 @@ from services.help_requests import (
     list_guide_requests,
     guide_respond_request,
     create_mentor_admin_query,
-    list_mentor_admin_queries
+    list_mentor_admin_queries,
+    create_mentor_consultation
 )
 from services.schemes_ui import parse_list_field
 
@@ -687,42 +688,97 @@ def render_guide_portal(user_profile: dict):
                 # ─────────────────────────────────────────────────────────
                 with subtabs[4]:
                     st.subheader(f"Direct Consultations: {curr_asp['full_name']}")
-                    st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>Consultation requests submitted by <strong>{curr_asp['full_name']}</strong> requiring your guidance and strategic advice.</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>Consultation requests and proactive guidance directives with <strong>{curr_asp['full_name']}</strong>.</p>", unsafe_allow_html=True)
+
+                    with st.expander(f"➕ Issue Guidance Directive / Check-in to {curr_asp['full_name']}", expanded=False):
+                        with st.form(f"form_guide_init_consult_{selected_asp_id}"):
+                            c_gc1, c_gc2 = st.columns([2, 1])
+                            with c_gc1:
+                                gc_subj = st.text_input("Subject / Action Item *", placeholder="e.g. Upload Competitive Machinery Quotations for PMEGP DPR", key=f"gc_subj_{selected_asp_id}")
+                            with c_gc2:
+                                gc_cat_options = {
+                                    "BANKING_DPR": "Banking, DPR & Financials",
+                                    "SCHEMES_SUBSIDIES": "Scheme Eligibility & Subsidies",
+                                    "GENERAL": "General Mentorship & Strategy",
+                                    "SCALING_OPERATIONS": "Venture Scaling & Operations",
+                                    "OTHERS": "Other Specific Guidance"
+                                }
+                                gc_cat = st.selectbox("Category", list(gc_cat_options.keys()), format_func=lambda k: gc_cat_options[k], key=f"gc_cat_{selected_asp_id}")
+
+                            gc_prio = st.selectbox("Priority", ["LOW", "MEDIUM", "HIGH", "URGENT"], index=1, key=f"gc_prio_{selected_asp_id}")
+                            gc_msg = st.text_area("Guidance Directive / Action Required *", placeholder=f"Specify what {curr_asp['full_name']} needs to do or provide...", height=90, key=f"gc_msg_{selected_asp_id}")
+
+                            if st.form_submit_button("🚀 SEND GUIDANCE DIRECTIVE TO ASPIRANT", type="primary"):
+                                if not gc_subj.strip():
+                                    st.warning("Please provide a subject for this guidance directive.")
+                                elif not gc_msg.strip():
+                                    st.warning("Please provide the guidance instructions / action required.")
+                                else:
+                                    req, err = create_mentor_consultation(
+                                        mentor_id=guide_id,
+                                        mentor_role="guide",
+                                        aspirant_id=selected_asp_id,
+                                        subject=gc_subj.strip(),
+                                        message=gc_msg.strip(),
+                                        priority=gc_prio,
+                                        category=gc_cat
+                                    )
+                                    if req:
+                                        st.success(f"Guidance directive dispatched to {curr_asp['full_name']}!")
+                                        st.rerun()
+                                    else:
+                                        st.error(err or "Failed to dispatch directive.")
 
                     if not asp_tickets:
-                        st.info(f"No consultation requests currently recorded from {curr_asp['full_name']}.")
+                        st.info(f"No consultations currently recorded with {curr_asp['full_name']}. You may initiate a guidance directive above.")
                     else:
                         for t in asp_tickets:
                             t_status = t.get("status", "OPEN")
-                            st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981"
+                            st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status in ["IN_PROGRESS", "REPLIED"] else "#10b981"
+                            is_mentor_init = (t.get("request_type") == "mentor_initiated" or t.get("requester_role") == "guide")
 
                             escaped_subject = html.escape(t.get('subject', 'Support Ticket'))
                             escaped_asp_name = html.escape(t.get('aspirant_name') or curr_asp.get('full_name', 'Entrepreneur'))
                             escaped_asp_email = html.escape(t.get('aspirant_email') or curr_asp.get('email', ''))
                             escaped_message = html.escape(t.get('message', '')).replace('\n', '<br>')
 
+                            if is_mentor_init:
+                                origin_badge = '<span style="font-size:0.75rem; font-weight:800; background:#059669; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:6px;">🧭 INITIATED BY YOU</span>'
+                                from_line = f'Directive issued by you to: <strong style="color:#0F172A;">{escaped_asp_name}</strong>'
+                            else:
+                                origin_badge = '<span style="font-size:0.75rem; font-weight:800; background:#3B82F6; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:6px;">🌱 FROM FOUNDER</span>'
+                                from_line = f'From: <strong style="color:#0F172A;">{escaped_asp_name}</strong> ({escaped_asp_email})'
+
                             guide_resp_html = ""
                             if t.get('guide_response'):
                                 g_resp = html.escape(t.get('guide_response') or '').replace('\n', '<br>')
                                 guide_resp_html = f'<div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:3px solid #10b981; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#166534; margin-top:0.5rem;"><strong>Your Guidance Response:</strong> {g_resp}</div>'
+
+                            asp_resp_html = ""
+                            asp_reply = t.get('aspirant_response') or (t.get('admin_response', '').replace('Aspirant Reply: ', '') if str(t.get('admin_response', '')).startswith('Aspirant Reply: ') else '')
+                            if asp_reply:
+                                a_resp = html.escape(asp_reply).replace('\n', '<br>')
+                                asp_resp_html = f'<div style="background:#EFF6FF; border:1px solid #BFDBFE; border-left:3px solid #3B82F6; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#1E40AF; margin-top:0.5rem;"><strong>🌱 Founder Response / Updates:</strong> {a_resp}</div>'
 
                             card_html = (
                                 f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid {st_color}; border-radius:0 12px 12px 0; padding:1.2rem; margin-bottom:0.8rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
                                 f'<div style="display:flex; justify-content:space-between; align-items:center;">'
                                 f'<div><span style="font-size:1.1rem; font-weight:800; color:#0F172A;">{escaped_subject}</span>'
                                 f'<span style="font-size:0.75rem; font-weight:800; background:{st_color}; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:8px;">{t_status}</span>'
-                                f'<span style="font-size:0.75rem; font-weight:700; background:#F1F5F9; color:#475569; padding:2px 8px; border-radius:6px; margin-left:4px;">{t.get("priority","MEDIUM")}</span></div>'
+                                f'<span style="font-size:0.75rem; font-weight:700; background:#F1F5F9; color:#475569; padding:2px 8px; border-radius:6px; margin-left:4px;">{t.get("priority","MEDIUM")}</span>'
+                                f'{origin_badge}</div>'
                                 f'<div style="font-size:0.8rem; color:#64748B;">{str(t.get("created_at",""))[:16]}</div>'
                                 f'</div>'
-                                f'<div style="font-size:0.85rem; color:#64748B; margin:4px 0;">From: <strong style="color:#0F172A;">{escaped_asp_name}</strong> ({escaped_asp_email})</div>'
+                                f'<div style="font-size:0.85rem; color:#64748B; margin:4px 0;">{from_line}</div>'
                                 f'<div style="font-size:0.9rem; color:#334155; margin-top:0.4rem; line-height:1.45;">{escaped_message}</div>'
                                 f'{guide_resp_html}'
+                                f'{asp_resp_html}'
                                 f'</div>'
                             )
                             st.markdown(card_html, unsafe_allow_html=True)
 
-                            if t_status in ["OPEN", "IN_PROGRESS"]:
-                                with st.expander(f"💬 Provide Advisory Guidance for '{t.get('subject')}'", expanded=False):
+                            if t_status in ["OPEN", "IN_PROGRESS", "REPLIED"]:
+                                with st.expander(f"💬 Provide Advisory Guidance / Update Status for '{t.get('subject')}'", expanded=False):
                                     with st.form(f"form_guide_resp_sub_{t['id']}"):
                                         c_r1, c_r2 = st.columns([1, 2])
                                         with c_r1:

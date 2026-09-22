@@ -894,3 +894,211 @@ def admin_respond_to_mentor(
             print(f"[HelpRequests] Mentor notification warning: {ne}")
 
     return True, None
+
+
+def create_mentor_consultation(
+    mentor_id: str,
+    mentor_role: str,
+    aspirant_id: str,
+    subject: str,
+    message: str,
+    priority: str = "MEDIUM",
+    category: str = "GENERAL",
+    category_detail: Optional[str] = None
+) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Mentor (Guide or Domain SME) issues a proactive guidance directive, check-in,
+    or action item directly to an assigned mentee (Aspirant).
+    """
+    if not subject or not message:
+        return None, "Subject and guidance instructions are required."
+
+    backend = get_data_backend()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    req_id = str(uuid.uuid4())
+    actual_guide_id = mentor_id if mentor_role == "guide" else None
+    actual_sme_id = mentor_id if mentor_role == "sme" else None
+    clean_cat_detail = category_detail.strip() if category_detail else None
+
+    if backend == "supabase":
+        client = _get_admin_client() or _get_user_client()
+        if not client:
+            return None, "Database client unavailable."
+        req_data = {
+            "id": req_id,
+            "aspirant_id": aspirant_id,
+            "subject": subject.strip(),
+            "message": message.strip(),
+            "priority": priority,
+            "status": "OPEN",
+            "assigned_guide_id": actual_guide_id,
+            "assigned_sme_id": actual_sme_id,
+            "category": category,
+            "category_detail": clean_cat_detail,
+            "target_role": mentor_role,
+            "requester_id": mentor_id,
+            "requester_role": mentor_role,
+            "request_type": "mentor_initiated",
+            "assigned_at": now_iso,
+            "created_at": now_iso,
+            "updated_at": now_iso
+        }
+        try:
+            res = client.table("help_requests").insert(req_data).execute()
+            req = res.data[0] if (res.data and len(res.data) > 0) else req_data
+        except Exception as e:
+            admin_client = _get_admin_client()
+            inserted = False
+            if admin_client and admin_client != client:
+                try:
+                    res = admin_client.table("help_requests").insert(req_data).execute()
+                    req = res.data[0] if (res.data and len(res.data) > 0) else req_data
+                    inserted = True
+                except Exception:
+                    pass
+            if not inserted:
+                print(f"[HelpRequests] Supabase insert note ({e}), saving to local fallback db")
+                local_db = get_local_db()
+                req = local_db.create_mentor_consultation(
+                    mentor_id=mentor_id,
+                    mentor_role=mentor_role,
+                    aspirant_id=aspirant_id,
+                    subject=subject.strip(),
+                    message=message.strip(),
+                    priority=priority,
+                    category=category,
+                    category_detail=clean_cat_detail
+                )
+    else:
+        local_db = get_local_db()
+        req = local_db.create_mentor_consultation(
+            mentor_id=mentor_id,
+            mentor_role=mentor_role,
+            aspirant_id=aspirant_id,
+            subject=subject.strip(),
+            message=message.strip(),
+            priority=priority,
+            category=category,
+            category_detail=clean_cat_detail
+        )
+
+    # Dispatch In-App Notification to the Aspirant
+    try:
+        from services.notifications import create_notification
+        from services.profiles import get_profile
+        mentor_p = get_profile(mentor_id)
+        mentor_name = mentor_p.get("full_name") if mentor_p else ("Dedicated Guide" if mentor_role == "guide" else "Domain SME")
+        role_label = "Dedicated Guide" if mentor_role == "guide" else "Domain Specialist"
+        create_notification(
+            user_id=aspirant_id,
+            title=f"Guidance Directive: {subject.strip()}",
+            message=f"{mentor_name} ({role_label}) issued a guidance check-in: '{message.strip()[:90]}...'",
+            notification_type="mentor_guidance_issued",
+            actor_id=mentor_id
+        )
+    except Exception as e:
+        print(f"[HelpRequests] Notification dispatch error: {e}")
+
+    return req, None
+
+
+def aspirant_respond_request(request_id: str, aspirant_id: str, response: str) -> Tuple[bool, Optional[str]]:
+    """
+    Aspirant responds to a consultation request (especially mentor-initiated directives).
+    Updates status to 'REPLIED' and records the response.
+    """
+    if not response or not response.strip():
+        return False, "Response text is required."
+
+    backend = get_data_backend()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    mentor_recipient_id = None
+    subject = "Consultation"
+
+    if backend == "supabase":
+        client = _get_admin_client() or _get_user_client()
+        if not client:
+            return False, "Database client unavailable."
+        try:
+            # Fetch request
+            t_res = client.table("help_requests").select("*").eq("id", request_id).execute()
+            if not t_res.data or len(t_res.data) == 0:
+                admin_client = _get_admin_client()
+                if admin_client:
+                    t_res = admin_client.table("help_requests").select("*").eq("id", request_id).execute()
+            if not t_res.data or len(t_res.data) == 0:
+                return False, "Consultation record not found."
+
+            req = t_res.data[0]
+            if str(req.get("aspirant_id")) != str(aspirant_id):
+                return False, "Unauthorized: You can only respond to your own consultations."
+
+            subject = req.get("subject", "Consultation")
+            mentor_recipient_id = req.get("requester_id") or req.get("assigned_guide_id") or req.get("assigned_sme_id")
+
+            # Try updating with aspirant_response column, fallback to admin_response if column does not exist
+            update_payload = {
+                "status": "IN_PROGRESS",
+                "aspirant_response": response.strip(),
+                "last_handled_at": now_iso,
+                "updated_at": now_iso
+            }
+            try:
+                client.table("help_requests").update(update_payload).eq("id", request_id).execute()
+            except Exception:
+                update_payload.pop("aspirant_response", None)
+                update_payload["admin_response"] = f"Aspirant Reply: {response.strip()}"
+                client.table("help_requests").update(update_payload).eq("id", request_id).execute()
+
+        except Exception as e:
+            admin_client = _get_admin_client()
+            if admin_client and admin_client != client:
+                try:
+                    fallback_payload = {
+                        "status": "IN_PROGRESS",
+                        "admin_response": f"Aspirant Reply: {response.strip()}",
+                        "last_handled_at": now_iso,
+                        "updated_at": now_iso
+                    }
+                    admin_client.table("help_requests").update(fallback_payload).eq("id", request_id).execute()
+                except Exception as e2:
+                    return False, f"Failed to submit response to Supabase: {e2}"
+            else:
+                return False, f"Failed to submit response to Supabase: {e}"
+    else:
+        # SQLite mode
+        local_db = get_local_db()
+        conn = local_db._get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM help_requests WHERE id = ?", (request_id,))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return False, "Consultation record not found."
+        req = dict(row)
+        if str(req.get("aspirant_id")) != str(aspirant_id):
+            return False, "Unauthorized: You can only respond to your own consultations."
+
+        subject = req.get("subject", "Consultation")
+        mentor_recipient_id = req.get("requester_id") or req.get("assigned_guide_id") or req.get("assigned_sme_id")
+        local_db.aspirant_respond_help_request(request_id, aspirant_id, response.strip())
+
+    # Dispatch notification to mentor
+    if mentor_recipient_id:
+        try:
+            from services.notifications import create_notification
+            from services.profiles import get_profile
+            asp_p = get_profile(aspirant_id)
+            asp_name = asp_p.get("full_name") if asp_p else "Entrepreneur"
+            create_notification(
+                user_id=mentor_recipient_id,
+                title=f"Reply from {asp_name}: {subject}",
+                message=f"{asp_name} replied to your consultation inquiry: '{response.strip()[:90]}...'",
+                notification_type="aspirant_reply_submitted",
+                actor_id=aspirant_id
+            )
+        except Exception as e:
+            print(f"[HelpRequests] Notification dispatch error: {e}")
+
+    return True, None
+

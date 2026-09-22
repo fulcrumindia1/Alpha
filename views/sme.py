@@ -19,7 +19,8 @@ from services.help_requests import (
     list_sme_requests,
     sme_respond_request,
     create_mentor_admin_query,
-    list_mentor_admin_queries
+    list_mentor_admin_queries,
+    create_mentor_consultation
 )
 
 def render_sme_portal(user_profile: dict):
@@ -322,24 +323,77 @@ def render_sme_portal(user_profile: dict):
                 # ─────────────────────────────────────────────────────────
                 with subtabs[3]:
                     st.subheader(f"Domain Consultations: {curr_asp['full_name']}")
-                    st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>Technical and compliance consultation requests submitted by <strong>{curr_asp['full_name']}</strong>.</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>Technical and compliance consultation requests with <strong>{curr_asp['full_name']}</strong>.</p>", unsafe_allow_html=True)
+
+                    with st.expander(f"➕ Issue Domain Advisory / Check-in to {curr_asp['full_name']}", expanded=False):
+                        with st.form(f"form_sme_init_consult_{selected_asp_id}"):
+                            c_sc1, c_sc2 = st.columns([2, 1])
+                            with c_sc1:
+                                sc_subj = st.text_input("Subject / Technical Inquiry *", placeholder="e.g. FSSAI Lab Nutrition Testing Verification Required", key=f"sc_subj_{selected_asp_id}")
+                            with c_sc2:
+                                sc_cat_options = {
+                                    "GST_TAXATION": "GST, Taxation & Direct Tax",
+                                    "LEGAL_COMPLIANCE": "Company Law & Statutory Legal",
+                                    "FSSAI_FOOD": "FSSAI & Lab Testing Standards",
+                                    "PATENTS_IPR": "Patents & Trademark Protection",
+                                    "OTHERS": "Other Specialized Technical Guidance"
+                                }
+                                sc_cat = st.selectbox("Domain Category", list(sc_cat_options.keys()), format_func=lambda k: sc_cat_options[k], key=f"sc_cat_{selected_asp_id}")
+
+                            sc_prio = st.selectbox("Priority", ["LOW", "MEDIUM", "HIGH", "URGENT"], index=1, key=f"sc_prio_{selected_asp_id}")
+                            sc_msg = st.text_area("Advisory Instructions / Action Required *", placeholder=f"Specify what technical documentation or compliance proof {curr_asp['full_name']} must provide...", height=90, key=f"sc_msg_{selected_asp_id}")
+
+                            if st.form_submit_button("🚀 SEND ADVISORY NOTICE TO ASPIRANT", type="primary"):
+                                if not sc_subj.strip():
+                                    st.warning("Please provide a subject for this advisory.")
+                                elif not sc_msg.strip():
+                                    st.warning("Please provide the advisory instructions / action required.")
+                                else:
+                                    req, err = create_mentor_consultation(
+                                        mentor_id=sme_id,
+                                        mentor_role="sme",
+                                        aspirant_id=selected_asp_id,
+                                        subject=sc_subj.strip(),
+                                        message=sc_msg.strip(),
+                                        priority=sc_prio,
+                                        category=sc_cat
+                                    )
+                                    if req:
+                                        st.success(f"Advisory notice dispatched to {curr_asp['full_name']}!")
+                                        st.rerun()
+                                    else:
+                                        st.error(err or "Failed to dispatch advisory notice.")
 
                     if not asp_tickets:
-                        st.info(f"No domain advisory requests currently recorded from {curr_asp['full_name']}.")
+                        st.info(f"No domain advisory requests currently recorded with {curr_asp['full_name']}. You may initiate a domain check-in above.")
                     else:
                         for t in asp_tickets:
                             t_status = t.get("status", "OPEN")
-                            st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981" if t_status == "RESOLVED" else "#ef4444"
+                            st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status in ["IN_PROGRESS", "REPLIED"] else "#10b981" if t_status == "RESOLVED" else "#ef4444"
+                            is_mentor_init = (t.get("request_type") == "mentor_initiated" or t.get("requester_role") == "sme")
 
                             escaped_subject = html.escape(t.get('subject', 'Advisory Request'))
                             escaped_asp_name = html.escape(t.get('aspirant_name') or curr_asp.get('full_name', 'Entrepreneur'))
                             escaped_asp_email = html.escape(t.get('aspirant_email') or curr_asp.get('email', ''))
                             escaped_message = html.escape(t.get('message', '')).replace('\n', '<br>')
 
+                            if is_mentor_init:
+                                origin_badge = '<span style="font-size:0.75rem; font-weight:800; background:#D97706; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:6px;">🔬 INITIATED BY YOU</span>'
+                                from_line = f'Advisory directive issued by you to: <strong style="color:#0F172A;">{escaped_asp_name}</strong>'
+                            else:
+                                origin_badge = '<span style="font-size:0.75rem; font-weight:800; background:#3B82F6; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:6px;">🌱 FROM FOUNDER</span>'
+                                from_line = f'From: <strong style="color:#0F172A;">{escaped_asp_name}</strong> ({escaped_asp_email})'
+
                             sme_resp_html = ""
                             if t.get('sme_response'):
                                 r_text = t.get('sme_response') or ""
                                 sme_resp_html = f'<div style="background:#FFFBEB; border:1px solid #FDE68A; border-left:3px solid #f59e0b; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#92400E; margin-top:0.5rem;"><strong>Your Specialist Advisory Note:</strong> {html.escape(r_text)}</div>'
+
+                            asp_resp_html = ""
+                            asp_reply = t.get('aspirant_response') or (t.get('admin_response', '').replace('Aspirant Reply: ', '') if str(t.get('admin_response', '')).startswith('Aspirant Reply: ') else '')
+                            if asp_reply:
+                                a_resp = html.escape(asp_reply).replace('\n', '<br>')
+                                asp_resp_html = f'<div style="background:#EFF6FF; border:1px solid #BFDBFE; border-left:3px solid #3B82F6; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#1E40AF; margin-top:0.5rem;"><strong>🌱 Founder Response / Updates:</strong> {a_resp}</div>'
 
                             card_html = (
                                 f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid {st_color}; border-radius:0 12px 12px 0; padding:1.2rem; margin-bottom:0.8rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
@@ -347,18 +401,20 @@ def render_sme_portal(user_profile: dict):
                                 f'<div><span style="font-size:1.1rem; font-weight:800; color:#0F172A;">{escaped_subject}</span>'
                                 f'<span style="font-size:0.75rem; font-weight:800; background:{st_color}; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:8px;">{t_status}</span>'
                                 f'<span style="font-size:0.75rem; font-weight:700; background:#FEF3C7; color:#B45309; padding:2px 8px; border-radius:6px; margin-left:4px;">{t.get("category","GENERAL")}</span>'
-                                f'<span style="font-size:0.75rem; font-weight:700; background:#F1F5F9; color:#475569; padding:2px 8px; border-radius:6px; margin-left:4px;">{t.get("priority","MEDIUM")}</span></div>'
+                                f'<span style="font-size:0.75rem; font-weight:700; background:#F1F5F9; color:#475569; padding:2px 8px; border-radius:6px; margin-left:4px;">{t.get("priority","MEDIUM")}</span>'
+                                f'{origin_badge}</div>'
                                 f'<div style="font-size:0.8rem; color:#64748B;">{str(t.get("created_at",""))[:16]}</div>'
                                 f'</div>'
-                                f'<div style="font-size:0.85rem; color:#64748B; margin:4px 0;">From: <strong style="color:#0F172A;">{escaped_asp_name}</strong> ({escaped_asp_email})</div>'
+                                f'<div style="font-size:0.85rem; color:#64748B; margin:4px 0;">{from_line}</div>'
                                 f'<div style="font-size:0.9rem; color:#334155; margin-top:0.4rem; line-height:1.45;">{escaped_message}</div>'
                                 f'{sme_resp_html}'
+                                f'{asp_resp_html}'
                                 f'</div>'
                             )
                             st.markdown(card_html, unsafe_allow_html=True)
 
-                            if t_status in ["OPEN", "IN_PROGRESS"]:
-                                with st.expander(f"💬 Provide Advisory Guidance for '{t.get('subject')}'", expanded=False):
+                            if t_status in ["OPEN", "IN_PROGRESS", "REPLIED"]:
+                                with st.expander(f"💬 Provide Advisory Guidance / Update Status for '{t.get('subject')}'", expanded=False):
                                     with st.form(f"form_sme_resp_sub_{t['id']}"):
                                         c_sr1, c_sr2 = st.columns([1, 2])
                                         with c_sr1:

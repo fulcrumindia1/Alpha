@@ -439,6 +439,7 @@ table {{ border-collapse: collapse; width: 100%; }}
         status_colors = {
             "OPEN": ("#FEF3C7", "#92400E"),
             "IN_PROGRESS": ("#DBEAFE", "#1E40AF"),
+            "REPLIED": ("#E0E7FF", "#3730A3"),
             "RESOLVED": ("#D1FAE5", "#065F46"),
             "ESCALATED": ("#FEE2E2", "#991B1B"),
         }
@@ -452,15 +453,29 @@ table {{ border-collapse: collapse; width: 100%; }}
             guide_resp = t.get("guide_response", "")
             sme_resp = t.get("sme_response", "")
             admin_resp = t.get("admin_response", "")
+            asp_resp = t.get("aspirant_response", "")
+            if not asp_resp and str(admin_resp).startswith("Aspirant Reply: "):
+                asp_resp = str(admin_resp).replace("Aspirant Reply: ", "")
+                admin_resp = ""
+
+            is_mentor_init = (t.get("request_type") == "mentor_initiated" or t.get("requester_role") in ("guide", "sme"))
+            req_role = t.get("requester_role") or ("guide" if t.get("assigned_guide_id") else "sme")
+            if is_mentor_init:
+                initiator_str = "Initiated by Dedicated Guide" if req_role == "guide" else "Initiated by Domain SME"
+            else:
+                initiator_str = "Initiated by Aspirant"
 
             html_parts.append(f'''
             <div class="ticket-card" style="background:{s_bg};border-color:{s_clr}40;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <div style="font-weight:700;font-size:12px;color:{s_clr};">{subject}</div>
-                    {_badge_html(t_status, s_bg, s_clr)}
+                    <div>
+                        <span style="font-size:10px;font-weight:700;color:#475569;margin-right:6px;">[{initiator_str}]</span>
+                        {_badge_html(t_status, s_bg, s_clr)}
+                    </div>
                 </div>
-                <div style="font-size:11px;color:#475569;margin-top:4px;">Priority: {priority} · Submitted: {created}</div>
-                <div style="font-size:11px;color:#334155;margin-top:4px;"><strong>Message:</strong> {_safe(message)}</div>''')
+                <div style="font-size:11px;color:#475569;margin-top:4px;">Priority: {priority} · Date: {created}</div>
+                <div style="font-size:11px;color:#334155;margin-top:4px;"><strong>Instructions / Message:</strong> {_safe(message)}</div>''')
 
             if guide_resp:
                 html_parts.append(f'''
@@ -472,9 +487,14 @@ table {{ border-collapse: collapse; width: 100%; }}
                 <div style="background:#FFFBEB;border-left:3px solid #F59E0B;padding:6px 10px;margin-top:6px;border-radius:0 4px 4px 0;font-size:11px;color:#92400E;">
                     <strong>SME Specialist Advisory:</strong> {_safe(sme_resp)}
                 </div>''')
+            if asp_resp:
+                html_parts.append(f'''
+                <div style="background:#EFF6FF;border-left:3px solid #3B82F6;padding:6px 10px;margin-top:6px;border-radius:0 4px 4px 0;font-size:11px;color:#1E40AF;">
+                    <strong>Aspirant Response / Action Taken:</strong> {_safe(asp_resp)}
+                </div>''')
             if admin_resp:
                 html_parts.append(f'''
-                <div style="background:#EFF6FF;border-left:3px solid #3B82F6;padding:6px 10px;margin-top:4px;border-radius:0 4px 4px 0;font-size:11px;color:#1E40AF;">
+                <div style="background:#F8FAFC;border-left:3px solid #64748B;padding:6px 10px;margin-top:4px;border-radius:0 4px 4px 0;font-size:11px;color:#334155;">
                     <strong>Admin Resolution:</strong> {_safe(admin_resp)}
                 </div>''')
 
