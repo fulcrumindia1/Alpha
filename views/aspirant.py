@@ -12,7 +12,27 @@ Aspirant Experience:
 
 import streamlit as st
 import html
+import inspect
 from datetime import datetime, date
+
+def _safe_esc(val, default=""):
+    """Crash-proof HTML escape that safely handles None, booleans, and non-string types."""
+    if val is None:
+        return default
+    return html.escape(str(val))
+
+def _safe_tabs(tab_labels, key=None, default=None):
+    """Safely creates tabs with key, on_change, and default support across Streamlit versions."""
+    sig = inspect.signature(st.tabs)
+    kwargs = {}
+    if "key" in sig.parameters and key is not None:
+        kwargs["key"] = key
+        if "on_change" in sig.parameters:
+            kwargs["on_change"] = "rerun"
+    if "default" in sig.parameters and default is not None and default in tab_labels:
+        if key not in st.session_state or st.session_state.get(key) not in tab_labels:
+            kwargs["default"] = default
+    return st.tabs(tab_labels, **kwargs)
 from services.profiles import get_profile, update_aspirant_profile
 from services.relationships import get_aspirant_mentors
 from services.journey import get_journey_timeline, add_manual_aspirant_entry, soft_delete_event, get_standard_role_label, toggle_event_roadmap_inclusion
@@ -60,14 +80,14 @@ def render_aspirant_portal(user_profile: dict):
     """, unsafe_allow_html=True)
 
     # Navigation Tabs
-    tabs = st.tabs([
+    tabs = _safe_tabs([
         "📊 Overview",
         "👤 My Profile",
         "🎬 My Journey",
         "🤝 My Mentors",
         "🏦 Scheme Matches",
         "🤝 Consult a Guide or SME"
-    ])
+    ], key="aspirant_portal_main_tabs")
 
     # ─────────────────────────────────────────────────────────────
     # TAB 1: OVERVIEW
@@ -694,6 +714,7 @@ def render_aspirant_portal(user_profile: dict):
                         category_detail=h_cat_detail.strip() if h_cat_detail else None
                     )
                     if req:
+                        st.session_state["aspirant_portal_main_tabs"] = "🤝 Consult a Guide or SME"
                         st.success(f"Consultation request submitted! Routed directly to your {target_person}.")
                         st.rerun()
                     else:
@@ -717,32 +738,35 @@ def render_aspirant_portal(user_profile: dict):
                 if is_mentor_init:
                     if req_role == "guide":
                         m_name = r.get("guide_name") or "Dedicated Guide"
-                        origin_badge = f'<span style="background:#ECFDF5; color:#059669; border:1px solid #A7F3D0; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px; margin-left:8px;">🧭 INITIATED BY GUIDE: {html.escape(m_name)}</span>'
+                        origin_badge = f'<span style="background:#ECFDF5; color:#059669; border:1px solid #A7F3D0; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px; margin-left:8px;">🧭 INITIATED BY GUIDE: {_safe_esc(m_name)}</span>'
                         border_color = "#10B981"
                     else:
                         m_name = r.get("sme_name") or "Domain Specialist"
-                        origin_badge = f'<span style="background:#FFFBEB; color:#D97706; border:1px solid #FDE68A; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px; margin-left:8px;">🔬 INITIATED BY SME: {html.escape(m_name)}</span>'
+                        origin_badge = f'<span style="background:#FFFBEB; color:#D97706; border:1px solid #FDE68A; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px; margin-left:8px;">🔬 INITIATED BY SME: {_safe_esc(m_name)}</span>'
                         border_color = "#F59E0B"
                 else:
-                    target_name = r.get("sme_name") if r.get("target_role") == "sme" else (r.get("guide_name") or "Dedicated Guide")
-                    origin_badge = f'<span style="background:#F1F5F9; color:#475569; font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:4px; margin-left:8px;">TARGET: {html.escape(target_name)}</span>'
+                    if r.get("target_role") == "sme":
+                        target_name = r.get("sme_name") or (f"Domain Specialist ({r.get('category', 'SME')})" if r.get("category") else "Domain Specialist")
+                    else:
+                        target_name = r.get("guide_name") or "Dedicated Guide"
+                    origin_badge = f'<span style="background:#F1F5F9; color:#475569; font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:4px; margin-left:8px;">TARGET: {_safe_esc(target_name)}</span>'
                     border_color = "#E2E8F0"
 
-                g_resp_html = f'<div style="background:#EFF6FF; border-left:3px solid #3B82F6; border:1px solid #BFDBFE; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#1E40AF; margin-top:0.5rem;"><strong>🧭 Guide Response:</strong> {html.escape(r["guide_response"])}</div>' if r.get('guide_response') else ''
-                s_resp_html = f'<div style="background:#FFFBEB; border-left:3px solid #F59E0B; border:1px solid #FDE68A; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#92400E; margin-top:0.5rem;"><strong>🔬 SME Advisory Response:</strong> {html.escape(r["sme_response"])}</div>' if r.get('sme_response') else ''
+                g_resp_html = f'<div style="background:#EFF6FF; border-left:3px solid #3B82F6; border:1px solid #BFDBFE; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#1E40AF; margin-top:0.5rem;"><strong>🧭 Guide Response:</strong> {_safe_esc(r.get("guide_response"))}</div>' if r.get('guide_response') else ''
+                s_resp_html = f'<div style="background:#FFFBEB; border-left:3px solid #F59E0B; border:1px solid #FDE68A; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#92400E; margin-top:0.5rem;"><strong>🔬 SME Advisory Response:</strong> {_safe_esc(r.get("sme_response"))}</div>' if r.get('sme_response') else ''
 
                 asp_reply = r.get("aspirant_response") or (r.get("admin_response", "").replace("Aspirant Reply: ", "") if str(r.get("admin_response", "")).startswith("Aspirant Reply: ") else "")
-                asp_resp_html = f'<div style="background:#F0FDF4; border-left:3px solid #10B981; border:1px solid #BBF7D0; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#166534; margin-top:0.5rem;"><strong>🌱 Your Submitted Reply / Update:</strong> {html.escape(asp_reply)}</div>' if asp_reply else ''
+                asp_resp_html = f'<div style="background:#F0FDF4; border-left:3px solid #10B981; border:1px solid #BBF7D0; padding:0.5rem 0.75rem; border-radius:0 6px 6px 0; font-size:0.85rem; color:#166534; margin-top:0.5rem;"><strong>🌱 Your Submitted Reply / Update:</strong> {_safe_esc(asp_reply)}</div>' if asp_reply else ''
 
                 card_html = (
                     f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid {border_color}; border-radius:12px; padding:1.25rem; margin-bottom:0.85rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">'
                     f'<div style="display:flex; justify-content:space-between; align-items:center;">'
-                    f'<div><strong style="color:#0F172A; font-size:1.05rem;">{html.escape(r["subject"])}</strong>'
-                    f'<span style="background:#F1F5F9; color:#475569; font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:4px; margin-left:8px;">{cat_badge}</span>'
+                    f'<div><strong style="color:#0F172A; font-size:1.05rem;">{_safe_esc(r.get("subject", "Consultation"))}</strong>'
+                    f'<span style="background:#F1F5F9; color:#475569; font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:4px; margin-left:8px;">{_safe_esc(cat_badge)}</span>'
                     f'{origin_badge}</div>'
-                    f'<span style="background:{st_color}; color:#ffffff; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px;">{r["status"]}</span>'
+                    f'<span style="background:{st_color}; color:#ffffff; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px;">{_safe_esc(r.get("status", "OPEN"))}</span>'
                     f'</div>'
-                    f'<div style="color:#334155; font-size:0.9rem; margin:0.5rem 0; line-height:1.45;">{html.escape(r["message"])}</div>'
+                    f'<div style="color:#334155; font-size:0.9rem; margin:0.5rem 0; line-height:1.45;">{_safe_esc(r.get("message", ""))}</div>'
                     f'{g_resp_html}'
                     f'{s_resp_html}'
                     f'{asp_resp_html}'
@@ -752,7 +776,7 @@ def render_aspirant_portal(user_profile: dict):
 
                 # If this ticket was initiated by a mentor and the founder hasn't replied yet, provide inline reply form
                 if is_mentor_init and r.get("status") in ["OPEN", "ACTION_REQUIRED"] and not asp_reply:
-                    mentor_author = r.get("guide_name") if req_role == "guide" else (r.get("sme_name") or "Your Mentor")
+                    mentor_author = (r.get("guide_name") or "Dedicated Guide") if req_role == "guide" else (r.get("sme_name") or "Domain Specialist")
                     with st.expander(f"💬 Reply / Submit Updates to {mentor_author}", expanded=True):
                         with st.form(f"form_asp_reply_{r['id']}"):
                             asp_reply_text = st.text_area(

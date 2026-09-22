@@ -10,7 +10,27 @@ SME Experience:
 
 import streamlit as st
 import html
+import inspect
 from datetime import date
+
+def _safe_esc(val, default=""):
+    """Crash-proof HTML escape that safely handles None, booleans, and non-string types."""
+    if val is None:
+        return default
+    return html.escape(str(val))
+
+def _safe_tabs(tab_labels, key=None, default=None):
+    """Safely creates tabs with key, on_change, and default support across Streamlit versions."""
+    sig = inspect.signature(st.tabs)
+    kwargs = {}
+    if "key" in sig.parameters and key is not None:
+        kwargs["key"] = key
+        if "on_change" in sig.parameters:
+            kwargs["on_change"] = "rerun"
+    if "default" in sig.parameters and default is not None and default in tab_labels:
+        if key not in st.session_state or st.session_state.get(key) not in tab_labels:
+            kwargs["default"] = default
+    return st.tabs(tab_labels, **kwargs)
 from services.relationships import get_assigned_aspirants_for_sme, get_assignment_history, get_aspirant_mentors
 from services.profiles import get_profile, update_mentor_profile
 from services.journey import get_journey_timeline, add_sme_contribution, soft_delete_event, get_standard_role_label
@@ -84,16 +104,16 @@ def render_sme_portal(user_profile: dict):
                 # Calculate direct consultations from this mentee directed to this SME
                 all_sme_tickets = list_sme_requests(sme_id) or []
                 asp_tickets = [t for t in all_sme_tickets if t.get("aspirant_id") == selected_asp_id]
-                open_cnt = sum(1 for t in asp_tickets if t.get("status") in ["OPEN", "IN_PROGRESS"])
-                consult_label = f"💬 Consultations ({open_cnt} Open)" if open_cnt > 0 else "💬 Consultations"
+                open_cnt = sum(1 for t in asp_tickets if t.get("status") in ["OPEN", "IN_PROGRESS", "ACTION_REQUIRED"])
 
                 # 4 Dedicated Subtabs for Selected Aspirant (No Scheme Matches for SME!)
-                subtabs = st.tabs([
+                subtab_key = f"sme_subtabs_{selected_asp_id}"
+                subtabs = _safe_tabs([
                     "👤 Profile",
                     "🎬 Journey",
                     "🤝 Guidance Team",
-                    consult_label
-                ])
+                    "💬 Consultations"
+                ], key=subtab_key, default="👤 Profile")
 
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 1: ASPIRANT PROFILE
@@ -202,6 +222,7 @@ def render_sme_portal(user_profile: dict):
                                         event_date=s_date.isoformat()
                                     )
                                     if ev:
+                                        st.session_state[subtab_key] = "🎬 Journey"
                                         st.success(f"Added domain guidance to {curr_asp['full_name']}'s Journey!")
                                         st.rerun()
                                     else:
@@ -265,6 +286,7 @@ def render_sme_portal(user_profile: dict):
                                 if event.get("actor_id") == sme_id and actor_role == "sme":
                                     if st.button("🗑️", key=f"sme_del_sub_{event['id']}", help="Delete your contribution"):
                                         soft_delete_event(event["id"], sme_id, "sme")
+                                        st.session_state[subtab_key] = "🎬 Journey"
                                         st.rerun()
 
                 # ─────────────────────────────────────────────────────────
@@ -322,7 +344,8 @@ def render_sme_portal(user_profile: dict):
                 # SUBTAB 4: DIRECT CONSULTATIONS & DOMAIN QUERIES
                 # ─────────────────────────────────────────────────────────
                 with subtabs[3]:
-                    st.subheader(f"Domain Consultations: {curr_asp['full_name']}")
+                    open_pill = f' <span style="background:#FEF3C7; color:#B45309; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px; vertical-align:middle;">{open_cnt} Open</span>' if open_cnt > 0 else ""
+                    st.markdown(f"### Domain Consultations: {curr_asp['full_name']}{open_pill}", unsafe_allow_html=True)
                     st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>Technical and compliance consultation requests with <strong>{curr_asp['full_name']}</strong>.</p>", unsafe_allow_html=True)
 
                     with st.expander(f"➕ Issue Domain Advisory / Check-in to {curr_asp['full_name']}", expanded=False):
@@ -359,6 +382,7 @@ def render_sme_portal(user_profile: dict):
                                         category=sc_cat
                                     )
                                     if req:
+                                        st.session_state[subtab_key] = "💬 Consultations"
                                         st.success(f"Advisory notice dispatched to {curr_asp['full_name']}!")
                                         st.rerun()
                                     else:
@@ -372,10 +396,10 @@ def render_sme_portal(user_profile: dict):
                             st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status in ["IN_PROGRESS", "REPLIED"] else "#10b981" if t_status == "RESOLVED" else "#ef4444"
                             is_mentor_init = (t.get("request_type") == "mentor_initiated" or t.get("requester_role") == "sme")
 
-                            escaped_subject = html.escape(t.get('subject', 'Advisory Request'))
-                            escaped_asp_name = html.escape(t.get('aspirant_name') or curr_asp.get('full_name', 'Entrepreneur'))
-                            escaped_asp_email = html.escape(t.get('aspirant_email') or curr_asp.get('email', ''))
-                            escaped_message = html.escape(t.get('message', '')).replace('\n', '<br>')
+                            escaped_subject = _safe_esc(t.get('subject', 'Advisory Request'))
+                            escaped_asp_name = _safe_esc(t.get('aspirant_name') or curr_asp.get('full_name', 'Entrepreneur'))
+                            escaped_asp_email = _safe_esc(t.get('aspirant_email') or curr_asp.get('email', ''))
+                            escaped_message = _safe_esc(t.get('message', '')).replace('\n', '<br>')
 
                             if is_mentor_init:
                                 origin_badge = '<span style="font-size:0.75rem; font-weight:800; background:#D97706; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:6px;">🔬 INITIATED BY YOU</span>'
@@ -387,7 +411,7 @@ def render_sme_portal(user_profile: dict):
                             sme_resp_html = ""
                             if t.get('sme_response'):
                                 r_text = t.get('sme_response') or ""
-                                sme_resp_html = f'<div style="background:#FFFBEB; border:1px solid #FDE68A; border-left:3px solid #f59e0b; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#92400E; margin-top:0.5rem;"><strong>Your Specialist Advisory Note:</strong> {html.escape(r_text)}</div>'
+                                sme_resp_html = f'<div style="background:#FFFBEB; border:1px solid #FDE68A; border-left:3px solid #f59e0b; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#92400E; margin-top:0.5rem;"><strong>Your Specialist Advisory Note:</strong> {_safe_esc(r_text)}</div>'
 
                             asp_resp_html = ""
                             asp_reply = t.get('aspirant_response') or (t.get('admin_response', '').replace('Aspirant Reply: ', '') if str(t.get('admin_response', '')).startswith('Aspirant Reply: ') else '')
@@ -428,6 +452,7 @@ def render_sme_portal(user_profile: dict):
                                             else:
                                                 ok, err = sme_respond_request(t["id"], sme_id, new_sme_st, sme_resp_text.strip())
                                                 if ok:
+                                                    st.session_state[subtab_key] = "💬 Consultations"
                                                     st.success("Advisory response recorded and student notified!")
                                                     st.rerun()
                                                 else:
@@ -500,6 +525,7 @@ def render_sme_portal(user_profile: dict):
                                         priority=q_priority
                                     )
                                     if q_res:
+                                        st.session_state[subtab_key] = "💬 Consultations"
                                         st.success("Administrative request submitted to Program Directorate! Admin will issue official directives.")
                                         st.rerun()
                                     else:
@@ -527,15 +553,15 @@ def render_sme_portal(user_profile: dict):
                 t_status = t.get("status", "OPEN")
                 st_color = "#f59e0b" if t_status == "OPEN" else "#3b82f6" if t_status == "IN_PROGRESS" else "#10b981" if t_status == "RESOLVED" else "#ef4444"
 
-                escaped_subject = html.escape(t.get('subject', 'Advisory Request'))
-                escaped_asp_name = html.escape(t.get('aspirant_name') or 'Entrepreneur')
-                escaped_asp_email = html.escape(t.get('aspirant_email') or '')
-                escaped_message = html.escape(t.get('message', '')).replace('\n', '<br>')
+                escaped_subject = _safe_esc(t.get('subject', 'Advisory Request'))
+                escaped_asp_name = _safe_esc(t.get('aspirant_name') or 'Entrepreneur')
+                escaped_asp_email = _safe_esc(t.get('aspirant_email') or '')
+                escaped_message = _safe_esc(t.get('message', '')).replace('\n', '<br>')
 
                 sme_resp_html = ""
                 if t.get('sme_response'):
                     r_text = t.get('sme_response') or ""
-                    sme_resp_html = f'<div style="background:#FFFBEB; border:1px solid #FDE68A; border-left:3px solid #f59e0b; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#92400E; margin-top:0.5rem;"><strong>Specialist Advisory Note:</strong> {html.escape(r_text)}</div>'
+                    sme_resp_html = f'<div style="background:#FFFBEB; border:1px solid #FDE68A; border-left:3px solid #f59e0b; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#92400E; margin-top:0.5rem;"><strong>Specialist Advisory Note:</strong> {_safe_esc(r_text)}</div>'
 
                 card_html = (
                     f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid {st_color}; border-radius:0 12px 12px 0; padding:1.2rem; margin-bottom:0.8rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">'

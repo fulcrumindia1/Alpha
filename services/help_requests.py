@@ -23,6 +23,47 @@ def _get_admin_client():
     """Returns the privileged admin Supabase client (bypasses RLS). Use sparingly."""
     return get_supabase_admin_client()
 
+def _enrich_mentor_names(rows: List[Dict], client=None) -> List[Dict]:
+    """Enriches consultation ticket rows with guide_name and sme_name from profiles if missing."""
+    if not rows:
+        return rows
+    mentor_ids = set()
+    for r in rows:
+        if r.get("assigned_guide_id"):
+            mentor_ids.add(r["assigned_guide_id"])
+        if r.get("assigned_sme_id"):
+            mentor_ids.add(r["assigned_sme_id"])
+        if r.get("requester_id") and r.get("requester_role") in ("guide", "sme"):
+            mentor_ids.add(r["requester_id"])
+
+    valid_ids = []
+    for mid in mentor_ids:
+        s = str(mid)
+        if len(s) == 36 and s.count("-") == 4:
+            valid_ids.append(s)
+
+    if not valid_ids:
+        return rows
+
+    try:
+        admin_c = _get_admin_client() or client
+        if admin_c:
+            res = admin_c.table("profiles").select("id, full_name, role").in_("id", valid_ids).execute()
+            name_map = {p["id"]: p.get("full_name") for p in (res.data or []) if p.get("full_name")}
+            for r in rows:
+                if not r.get("guide_name") and r.get("assigned_guide_id") in name_map:
+                    r["guide_name"] = name_map[r["assigned_guide_id"]]
+                if not r.get("sme_name") and r.get("assigned_sme_id") in name_map:
+                    r["sme_name"] = name_map[r["assigned_sme_id"]]
+                if r.get("requester_id") in name_map:
+                    if r.get("requester_role") == "guide" and not r.get("guide_name"):
+                        r["guide_name"] = name_map[r["requester_id"]]
+                    elif r.get("requester_role") == "sme" and not r.get("sme_name"):
+                        r["sme_name"] = name_map[r["requester_id"]]
+    except Exception as e:
+        print(f"[HelpRequests] Error enriching mentor names: {e}")
+    return rows
+
 def create_request(
     aspirant_id: str,
     subject: str,
@@ -209,7 +250,7 @@ def list_requests(aspirant_id: Optional[str] = None) -> List[Dict]:
                     r["aspirant_email"] = p.get("email") or ""
                     rows.append(r)
                 if rows:
-                    return rows
+                    return _enrich_mentor_names(rows, client)
                 # If rows is empty and an admin client exists, check if unauthenticated user client was filtered by RLS
                 admin_client = _get_admin_client()
                 if admin_client and admin_client != client:
@@ -225,8 +266,8 @@ def list_requests(aspirant_id: Optional[str] = None) -> List[Dict]:
                         r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                         r["aspirant_email"] = p.get("email") or ""
                         rows_admin.append(r)
-                    return rows_admin
-                return rows
+                    return _enrich_mentor_names(rows_admin, admin_client)
+                return _enrich_mentor_names(rows, client)
             except Exception as e:
                 # If user client failed with RLS, try admin client
                 admin_client = _get_admin_client()
@@ -244,7 +285,7 @@ def list_requests(aspirant_id: Optional[str] = None) -> List[Dict]:
                             r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                             r["aspirant_email"] = p.get("email") or ""
                             rows.append(r)
-                        return rows
+                        return _enrich_mentor_names(rows, admin_client)
                     except Exception as e2:
                         print(f"[HelpRequests] Admin fallback error: {e2}")
                 print(f"[HelpRequests] Supabase list error: {e}")
@@ -275,7 +316,7 @@ def list_guide_requests(guide_id: str) -> List[Dict]:
                     r["aspirant_email"] = p.get("email") or ""
                     rows.append(r)
                 if rows:
-                    return rows
+                    return _enrich_mentor_names(rows, client)
                 admin_client = _get_admin_client()
                 if admin_client and admin_client != client:
                     res_admin = admin_client.table("help_requests")\
@@ -291,8 +332,8 @@ def list_guide_requests(guide_id: str) -> List[Dict]:
                         r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                         r["aspirant_email"] = p.get("email") or ""
                         rows_admin.append(r)
-                    return rows_admin
-                return rows
+                    return _enrich_mentor_names(rows_admin, admin_client)
+                return _enrich_mentor_names(rows, client)
             except Exception as e:
                 admin_client = _get_admin_client()
                 if admin_client and admin_client != client:
@@ -310,7 +351,7 @@ def list_guide_requests(guide_id: str) -> List[Dict]:
                             r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                             r["aspirant_email"] = p.get("email") or ""
                             rows.append(r)
-                        return rows
+                        return _enrich_mentor_names(rows, admin_client)
                     except Exception as e2:
                         print(f"[HelpRequests] Guide requests admin fallback error: {e2}")
                 print(f"[HelpRequests] Supabase list_guide_requests error: {e}")
@@ -433,7 +474,7 @@ def list_sme_requests(sme_id: str) -> List[Dict]:
                     r["aspirant_email"] = p.get("email") or ""
                     rows.append(r)
                 if rows:
-                    return rows
+                    return _enrich_mentor_names(rows, client)
                 admin_client = _get_admin_client()
                 if admin_client and admin_client != client:
                     res_admin = admin_client.table("help_requests")\
@@ -448,8 +489,8 @@ def list_sme_requests(sme_id: str) -> List[Dict]:
                         r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                         r["aspirant_email"] = p.get("email") or ""
                         rows_admin.append(r)
-                    return rows_admin
-                return rows
+                    return _enrich_mentor_names(rows_admin, admin_client)
+                return _enrich_mentor_names(rows, client)
             except Exception as e:
                 admin_client = _get_admin_client()
                 if admin_client and admin_client != client:
@@ -466,7 +507,7 @@ def list_sme_requests(sme_id: str) -> List[Dict]:
                             r["aspirant_name"] = p.get("full_name") or "Entrepreneur"
                             r["aspirant_email"] = p.get("email") or ""
                             rows.append(r)
-                        return rows
+                        return _enrich_mentor_names(rows, admin_client)
                     except Exception as e2:
                         print(f"[HelpRequests] Admin fallback error: {e2}")
                 print(f"[HelpRequests] Supabase list_sme_requests error: {e}")
