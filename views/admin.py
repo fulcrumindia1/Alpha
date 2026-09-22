@@ -155,7 +155,12 @@ def render_admin_portal(admin_profile: dict):
             if curr_asp:
                 with col_sel2:
                     try:
-                        if st.session_state.get("cached_dossier_asp_id") != selected_asp_id or "cached_dossier_pdf" not in st.session_state:
+                        cached_bytes = st.session_state.get("cached_dossier_pdf")
+                        if (
+                            st.session_state.get("cached_dossier_asp_id") != selected_asp_id 
+                            or not cached_bytes 
+                            or len(cached_bytes) < 1000
+                        ):
                             with st.spinner("Compiling Dossier PDF..."):
                                 st.session_state["cached_dossier_pdf"] = generate_aspirant_dossier_pdf(selected_asp_id)
                                 st.session_state["cached_dossier_asp_id"] = selected_asp_id

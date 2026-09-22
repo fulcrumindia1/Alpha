@@ -1,0 +1,53 @@
+[
+  {
+    "concurrency": 10,
+    "total_requests": 10,
+    "successful": 10,
+    "failed": 0,
+    "error_rate_percent": 0.0,
+    "total_duration_sec": 14.17,
+    "throughput_req_per_sec": 0.71,
+    "latency_p50_sec": 12.871,
+    "latency_p95_sec": 13.705,
+    "latency_p99_sec": 13.705,
+    "latency_avg_sec": 12.872,
+    "memory_start_mb": 98.75,
+    "memory_end_mb": 115.67,
+    "memory_delta_mb": 16.91,
+    "cpu_percent": 90.8
+  },
+  {
+    "concurrency": 25,
+    "total_requests": 25,
+    "successful": 25,
+    "failed": 0,
+    "error_rate_percent": 0.0,
+    "total_duration_sec": 3.16,
+    "throughput_req_per_sec": 7.9,
+    "latency_p50_sec": 1.48,
+    "latency_p95_sec": 3.1,
+    "latency_p99_sec": 3.148,
+    "latency_avg_sec": 2.005,
+    "memory_start_mb": 115.67,
+    "memory_end_mb": 117.95,
+    "memory_delta_mb": 2.28,
+    "cpu_percent": 58.5
+  },
+  {
+    "concurrency": 50,
+    "total_requests": 50,
+    "successful": 50,
+    "failed": 0,
+    "error_rate_percent": 0.0,
+    "total_duration_sec": 5.39,
+    "throughput_req_per_sec": 9.28,
+    "latency_p50_sec": 4.149,
+    "latency_p95_sec": 5.281,
+    "latency_p99_sec": 5.314,
+    "latency_avg_sec": 4.294,
+    "memory_start_mb": 117.96,
+    "memory_end_mb": 121.88,
+    "memory_delta_mb": 3.93,
+    "cpu_percent": 55.2
+  }
+]

@@ -1,0 +1,19 @@
+# ==============================================================================
+# FULCRUM-INDIA (Cluster A) — Caddyfile Reverse Proxy
+# Automatic HTTPS + Let's Encrypt + Streamlit WebSocket Support
+# ==============================================================================
+
+{$DOMAIN:app.fulcrumindia.in} {
+    # Reverse proxy to the internal Fulcrum Streamlit container
+    reverse_proxy fulcrum:8501
+
+    # Fast compression for static assets
+    encode gzip zstd
+
+    # Basic security headers
+    header {
+        X-Content-Type-Options nosniff
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+}

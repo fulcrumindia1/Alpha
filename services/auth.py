@@ -79,6 +79,33 @@ def get_data_backend() -> str:
         return "supabase"
     return "sqlite"
 
+def validate_production_configuration() -> Tuple[bool, Optional[str]]:
+    """
+    PART 3 — FAIL FAST ON PRODUCTION CONFIGURATION
+    When DATA_BACKEND=supabase, verifies that all required production secrets
+    (SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY/ANON_KEY, SUPABASE_SECRET_KEY/SERVICE_ROLE_KEY)
+    are configured. Raises RuntimeError if any secret is missing.
+    """
+    backend = get_data_backend()
+    if backend == "supabase":
+        url, pub_key, sec_key = _get_secrets()
+        missing = []
+        if not url:
+            missing.append("SUPABASE_URL")
+        if not pub_key:
+            missing.append("SUPABASE_PUBLISHABLE_KEY (or SUPABASE_ANON_KEY)")
+        if not sec_key:
+            missing.append("SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY)")
+        if missing:
+            err = f"FATAL PRODUCTION CONFIGURATION ERROR: DATA_BACKEND=supabase but missing required secrets: {', '.join(missing)}. Refusing to start or silently fall back to SQLite."
+            try:
+                from services.logger import app_logger
+                app_logger.error("auth", "startup_validation", err)
+            except Exception:
+                pass
+            raise RuntimeError(err)
+    return True, None
+
 def is_supabase_enabled() -> bool:
     """Returns True if DATA_BACKEND is configured for Supabase and credentials exist."""
     if get_data_backend() != "supabase":
@@ -142,8 +169,15 @@ def sync_user_phone_if_missing(user_id: str, phone: str, district: Optional[str]
                     upd["district"] = district
                 client.table("profiles").update(upd).eq("id", user_id).execute()
                 return True
-            except Exception:
-                pass
+            except Exception as e:
+                try:
+                    from services.logger import app_logger
+                    app_logger.warning("auth", "sync_user_phone", f"Could not sync phone in Supabase for user {user_id}: {e}")
+                except Exception:
+                    pass
+        return False
+
+    # SQLite local mode ONLY (when DATA_BACKEND=sqlite)
     try:
         from services.local_db import get_local_db
         db = get_local_db()

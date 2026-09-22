@@ -85,20 +85,6 @@ def get_aspirant_mentors(aspirant_id: str) -> Dict[str, Optional[Dict]]:
             if not smes and sme:
                 smes = [sme]
 
-        if len(guides) <= 1:
-            try:
-                local_rel = get_local_db().get_relationship(aspirant_id)
-                if local_rel and local_rel.get("guide_ids"):
-                    lg_ids = json.loads(local_rel["guide_ids"]) if isinstance(local_rel["guide_ids"], str) else local_rel["guide_ids"]
-                    for gid in lg_ids:
-                        gp = get_profile(gid)
-                        if gp and not any(existing["id"] == gp["id"] for existing in guides):
-                            guides.append(gp)
-                    if len(guides) > 1:
-                        guide_b = guides[1]
-            except Exception:
-                pass
-
         return {
             "guide": guide,
             "guide_b": guide_b,
@@ -266,18 +252,8 @@ def assign_guide(
             except Exception as e2:
                 print(f"[Relationships] Supabase assign_guide warning: {e2}")
 
-        # Always synchronize to local_db
-        conn = get_local_db()._get_conn()
-        cur = conn.cursor()
-        cur.execute("""
-        UPDATE relationships
-        SET guide_id = ?, guide_ids = ?, assigned_by = ?, notes = ?, updated_at = ?
-        WHERE aspirant_id = ?
-        """, (primary_guide_id, json.dumps(new_guide_ids), admin_id, notes, now_iso, aspirant_id))
-        conn.commit()
-        conn.close()
     else:
-        # SQLite mode
+        # SQLite mode ONLY (when DATA_BACKEND=sqlite)
         conn = get_local_db()._get_conn()
         cur = conn.cursor()
         cur.execute("""

@@ -12,7 +12,7 @@ import os
 import hashlib
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 DB_PATH = Path(__file__).resolve().parent.parent / "cluster_a.db"
 

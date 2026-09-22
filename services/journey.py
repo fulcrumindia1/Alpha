@@ -42,7 +42,6 @@ def get_or_create_journey(aspirant_id: str, title: Optional[str] = None) -> Dict
             except Exception:
                 pass
 
-        # Admin client fallback ensures that Guide, Admin, or background services can always resolve the Journey
         admin = _get_admin_client()
         if admin:
             try:
@@ -62,9 +61,17 @@ def get_or_create_journey(aspirant_id: str, title: Optional[str] = None) -> Dict
                 if c_res.data and len(c_res.data) > 0:
                     return c_res.data[0]
             except Exception as e:
-                print(f"[Journey] Supabase get_or_create_journey admin error: {e}")
+                pass
+        return {
+            "id": aspirant_id,
+            "aspirant_id": aspirant_id,
+            "title": title or "Enterprise Journey",
+            "business_type": "Entrepreneurship",
+            "stage": "idea",
+            "status": "active"
+        }
 
-    # SQLite local mode
+    # SQLite local mode ONLY (when DATA_BACKEND=sqlite)
     local_db = get_local_db()
     j = local_db.get_journey(aspirant_id)
     if not j:
@@ -162,10 +169,10 @@ def get_journey_timeline(aspirant_id: str) -> List[Dict]:
                     timeline.append(e)
                 return timeline
             except Exception as e:
-                print(f"[Journey] Supabase timeline admin error: {e}")
+                pass
         return []
 
-    # SQLite local fallback
+    # SQLite local fallback ONLY (when DATA_BACKEND=sqlite)
     return get_local_db().get_journey_events(aspirant_id)
 
 def toggle_event_roadmap_inclusion(

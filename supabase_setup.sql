@@ -272,7 +272,17 @@ CREATE INDEX IF NOT EXISTS idx_journey_events_aspirant ON public.journey_events(
 CREATE INDEX IF NOT EXISTS idx_help_requests_aspirant ON public.help_requests(aspirant_id);
 CREATE INDEX IF NOT EXISTS idx_help_requests_status ON public.help_requests(status);
 CREATE INDEX IF NOT EXISTS idx_help_requests_assigned_guide ON public.help_requests(assigned_guide_id);
+CREATE INDEX IF NOT EXISTS idx_help_requests_assigned_sme ON public.help_requests(assigned_sme_id);
 CREATE INDEX IF NOT EXISTS idx_help_requests_status_created ON public.help_requests(status, created_at);
+
+-- Notifications
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON public.notifications(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON public.notifications(user_id, is_read);
+
+-- Assignment History
+CREATE INDEX IF NOT EXISTS idx_assignment_history_aspirant ON public.assignment_history(aspirant_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_history_mentor ON public.assignment_history(mentor_id);
 
 -- Schemes
 CREATE INDEX IF NOT EXISTS idx_schemes_active ON public.schemes(is_active);
@@ -591,7 +601,8 @@ CREATE POLICY "Admin manage schemes" ON public.schemes
 
 -- Sanitized view: excludes hidden_agenda, red_flags, application_prompt
 -- Available for any future aspirant-facing direct reads if needed
-CREATE OR REPLACE VIEW public.schemes_public AS
+CREATE OR REPLACE VIEW public.schemes_public
+WITH (security_invoker = true) AS
 SELECT
     id, source_id, name, agency, ministry, scheme_type,
     category_type, funding_type, stage, amount, brief, description,

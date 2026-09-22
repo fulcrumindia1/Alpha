@@ -321,6 +321,19 @@ def list_guide_requests(guide_id: str) -> List[Dict]:
 
 def guide_respond_request(request_id: str, guide_id: str, new_status: str, response: str) -> Tuple[bool, Optional[str]]:
     """Guide responds to an assigned ticket and updates status."""
+    # PART 7 — AUTHORIZATION: Verify caller is authorized
+    try:
+        import streamlit as st
+        session_user = st.session_state.get("user")
+        session_role = st.session_state.get("role")
+        session_uid = st.session_state.get("user_id")
+        if session_user and session_role not in ("admin", "guide"):
+            return False, "Unauthorized: Only assigned Guides or Admins may respond to this consultation."
+        if session_user and session_role == "guide" and str(session_uid) != str(guide_id):
+            return False, "Unauthorized: You cannot respond on behalf of another Guide."
+    except Exception:
+        pass
+
     backend = get_data_backend()
     now_iso = datetime.now(timezone.utc).isoformat()
 
@@ -473,6 +486,19 @@ def sme_respond_request(request_id: str, sme_id: str, arg3: str, arg4: Optional[
     else:
         response = arg3
         new_status = arg4 or "IN_PROGRESS"
+
+    # PART 7 — AUTHORIZATION: Verify caller is authorized
+    try:
+        import streamlit as st
+        session_user = st.session_state.get("user")
+        session_role = st.session_state.get("role")
+        session_uid = st.session_state.get("user_id")
+        if session_user and session_role not in ("admin", "sme"):
+            return False, "Unauthorized: Only assigned SMEs or Admins may respond to this consultation."
+        if session_user and session_role == "sme" and str(session_uid) != str(sme_id):
+            return False, "Unauthorized: You cannot respond on behalf of another SME."
+    except Exception:
+        pass
 
     backend = get_data_backend()
     now_iso = datetime.now(timezone.utc).isoformat()

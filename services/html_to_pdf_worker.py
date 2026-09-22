@@ -14,15 +14,20 @@ def convert_html_to_pdf(input_html_path: str, output_pdf_path: str) -> bool:
     with open(input_html_path, "r", encoding="utf-8") as f:
         html_content = f.read()
 
+    launch_args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
     with sync_playwright() as p:
         browser = None
         try:
-            browser = p.chromium.launch(channel="chrome", headless=True)
+            browser = p.chromium.launch(channel="chrome", headless=True, args=launch_args)
         except Exception:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=launch_args)
 
         page = browser.new_page()
-        page.set_content(html_content, wait_until="networkidle", timeout=30000)
+        page.set_content(html_content, wait_until="domcontentloaded", timeout=15000)
+        try:
+            page.wait_for_load_state("networkidle", timeout=4000)
+        except Exception:
+            pass
         page.pdf(
             path=output_pdf_path,
             format="A4",

@@ -18,5 +18,8 @@ __pycache__/
 .streamlit/*.log
 
 # Database Backups
-backups/*.zip
-backups/temp_*
+backups/
+backups/*
+scratch/
+scratch/*
+test_dossier.pdf

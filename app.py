@@ -21,16 +21,24 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# Self-healing database check at entrypoint — runs ONCE per session
-# (guarantees zero missing-column crashes on fresh or legacy container disks)
-import sqlite3
-if not st.session_state.get("_sqlite_schema_healed"):
-    try:
-        from services.local_db import get_local_db
-        get_local_db()
-    except Exception as _e:
-        print(f"[SchemaHealing] Notice: {_e}")
-    st.session_state._sqlite_schema_healed = True
+# PART 3 & PART 4: Production Database & SQLite Startup Behavior
+# In production Supabase mode (DATA_BACKEND=supabase):
+# 1. Fail fast if required production secrets are missing.
+# 2. DO NOT initialize or mutate cluster_a.db.
+from services.auth import get_data_backend, validate_production_configuration
+
+# Fail-fast validation at application startup
+validate_production_configuration()
+
+# SQLite schema check runs ONLY when DATA_BACKEND=sqlite (explicit local dev/testing)
+if get_data_backend() == "sqlite":
+    if not st.session_state.get("_sqlite_schema_healed"):
+        try:
+            from services.local_db import get_local_db
+            get_local_db()
+        except Exception as _e:
+            print(f"[SchemaHealing] Notice: {_e}")
+        st.session_state._sqlite_schema_healed = True
 
 # Note: importlib.reload loop removed — it was resetting module singletons on
 # every Streamlit rerun, corrupting rendering state and causing ghost login UI.

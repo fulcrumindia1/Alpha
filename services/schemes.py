@@ -104,11 +104,9 @@ def get_scheme(scheme_id: str) -> Optional[Dict]:
                         return res.data[0]
                 except Exception:
                     pass
-        fallback = get_local_db().get_scheme_by_id(scheme_id)
-        if fallback:
-            return fallback
         return None
 
+    # SQLite mode ONLY (when DATA_BACKEND=sqlite)
     return get_local_db().get_scheme_by_id(scheme_id)
 
 def upsert_scheme(scheme: Dict, admin_id: str) -> Tuple[bool, Optional[str]]:
@@ -735,8 +733,6 @@ def get_released_schemes_for_aspirant(aspirant_id: str) -> List[Dict]:
                 for r in res.data:
                     sid = str(r.get("scheme_id"))
                     s = s_map.get(sid)
-                    if not s:
-                        s = get_local_db().get_scheme_by_id(sid)
                     if not s:
                         continue
                     s_clean = dict(s)

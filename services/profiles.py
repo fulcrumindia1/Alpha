@@ -77,7 +77,7 @@ def get_profile(user_id: str) -> Optional[Dict]:
                     p["completion_pct"] = calculate_completion(p)
                     return p
             except Exception as e:
-                print(f"[Profiles] Supabase query error: {e}")
+                pass
         
         # Admin client fallback for service lookups & background tasks
         admin = _get_admin_client()
@@ -89,10 +89,10 @@ def get_profile(user_id: str) -> Optional[Dict]:
                     p["completion_pct"] = calculate_completion(p)
                     return p
             except Exception as e:
-                print(f"[Profiles] Supabase admin fallback error: {e}")
+                pass
         return None
 
-    # SQLite mode
+    # SQLite mode ONLY (when DATA_BACKEND=sqlite)
     p = get_local_db().get_profile_by_id(user_id)
     if p:
         p["completion_pct"] = calculate_completion(p)
@@ -113,11 +113,10 @@ def list_profiles_by_role(role: str) -> List[Dict]:
                     r["completion_pct"] = calculate_completion(r)
                 return rows
             except Exception as e:
-                print(f"[Profiles] Supabase list error for {role}: {e}")
                 return []
         return []
 
-    # SQLite mode
+    # SQLite mode ONLY (when DATA_BACKEND=sqlite)
     rows = get_local_db().list_profiles_by_role(role)
     for r in rows:
         r["completion_pct"] = calculate_completion(r)
@@ -132,13 +131,31 @@ def update_aspirant_profile(
     personal_data: Optional[Dict] = None,
     professional_data: Optional[Dict] = None,
     business_data: Optional[Dict] = None,
-    demographics_data: Optional[Dict] = None
+    demographics_data: Optional[Dict] = None,
+    actor_id: Optional[str] = None
 ) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Updates Aspirant profile across the 4 core sections.
     Supports either individual fields or a combined dictionary passed as second argument.
     Triggers automated scheme match recalculation & Journey event logging.
     """
+    # PART 7 — AUTHORIZATION: Verify authenticated caller is the owner or admin
+    if actor_id:
+        actor_prof = get_profile(actor_id)
+        actor_role = actor_prof.get("role") if actor_prof else None
+        if actor_role != "admin" and str(actor_id) != str(user_id):
+            return None, "Unauthorized: You do not have permission to modify another user's profile."
+    else:
+        try:
+            import streamlit as st
+            session_user = st.session_state.get("user")
+            session_user_id = st.session_state.get("user_id")
+            session_role = st.session_state.get("role")
+            if session_user and session_role != "admin" and str(session_user_id) != str(user_id):
+                return None, "Unauthorized: You do not have permission to modify another user's profile."
+        except Exception:
+            pass
+
     current = get_profile(user_id)
     if not current:
         return None, "User profile not found."
@@ -183,18 +200,16 @@ def update_aspirant_profile(
     backend = get_data_backend()
 
     if backend == "supabase":
-        client = _get_user_client()
+        client = _get_user_client() or _get_admin_client()
         if not client:
             return None, "Supabase client not available."
         try:
-            # Under Postgres RLS, 'update' uses the UPDATE policy ("Users update own profile")
-            # whereas 'upsert' triggers the INSERT policy which requires admin privileges
             res = client.table("profiles").update(updated_record).eq("id", user_id).execute()
             if not res.data:
+                # If RLS restricted update, verify admin client
                 admin = _get_admin_client()
-                if admin:
-                    admin.table("profiles").upsert(updated_record, on_conflict="id").execute()
-            # Update Journey business type and stage
+                if admin and admin != client:
+                    res = admin.table("profiles").update(updated_record).eq("id", user_id).execute()
             client.table("journeys").update({
                 "title": f"{business_data.get('business_name') or full_name}'s Journey",
                 "business_type": business_data.get("sector") or business_data.get("business_type") or "Entrepreneurship",
@@ -202,22 +217,9 @@ def update_aspirant_profile(
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }).eq("aspirant_id", user_id).execute()
         except Exception as e:
-            admin = _get_admin_client()
-            if admin:
-                try:
-                    admin.table("profiles").update(updated_record).eq("id", user_id).execute()
-                    admin.table("journeys").update({
-                        "title": f"{business_data.get('business_name') or full_name}'s Journey",
-                        "business_type": business_data.get("sector") or business_data.get("business_type") or "Entrepreneurship",
-                        "stage": business_data.get("stage", "idea"),
-                        "updated_at": datetime.now(timezone.utc).isoformat()
-                    }).eq("aspirant_id", user_id).execute()
-                except Exception as ex2:
-                    return None, f"Failed to update profile in Supabase: {ex2}"
-            else:
-                return None, f"Failed to update profile in Supabase: {e}"
+            return None, f"Failed to update profile in Supabase: {e}"
     else:
-        # SQLite mode
+        # SQLite mode ONLY (when DATA_BACKEND=sqlite)
         local_db = get_local_db()
         local_db.upsert_profile(updated_record)
         j = local_db.get_journey(user_id)
@@ -307,19 +309,12 @@ def update_mentor_profile(
             res = client.table("profiles").update(updated_record).eq("id", user_id).execute()
             if not res.data:
                 admin = _get_admin_client()
-                if admin:
-                    admin.table("profiles").upsert(updated_record, on_conflict="id").execute()
-        except Exception as e:
-            admin = _get_admin_client()
-            if admin:
-                try:
+                if admin and admin != client:
                     admin.table("profiles").update(updated_record).eq("id", user_id).execute()
-                except Exception as ex2:
-                    return None, f"Failed to update profile in Supabase: {ex2}"
-            else:
-                return None, f"Failed to update profile in Supabase: {e}"
+        except Exception as e:
+            return None, f"Failed to update profile in Supabase: {e}"
     else:
-        # SQLite
+        # SQLite mode ONLY (when DATA_BACKEND=sqlite)
         get_local_db().upsert_profile(updated_record)
 
     try:
@@ -357,7 +352,9 @@ def update_profile(user_id: str, updates: Dict) -> Tuple[Optional[Dict], Optiona
                 client.table("profiles").update(db_payload).eq("id", user_id).execute()
             except Exception as e:
                 return None, f"Supabase update error: {e}"
+        return merged, None
     else:
+        # SQLite mode ONLY (when DATA_BACKEND=sqlite)
         get_local_db().upsert_profile(merged)
 
     return merged, None
