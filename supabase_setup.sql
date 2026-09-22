@@ -537,6 +537,11 @@ CREATE POLICY "SME insert journey events" ON public.journey_events
         aspirant_id IN (SELECT aspirant_id FROM public.relationships WHERE sme_id = auth.uid())
     );
 
+DROP POLICY IF EXISTS "SME manage own journey events" ON public.journey_events;
+CREATE POLICY "SME manage own journey events" ON public.journey_events
+    FOR UPDATE TO authenticated USING (actor_id = auth.uid() AND actor_role = 'sme');
+
+
 -- ── HELP REQUESTS POLICIES ──
 DROP POLICY IF EXISTS "Admin full access help requests" ON public.help_requests;
 CREATE POLICY "Admin full access help requests" ON public.help_requests

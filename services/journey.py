@@ -704,21 +704,67 @@ def soft_delete_event(event_id: str, user_id: str, user_role: str) -> Tuple[bool
     backend = get_data_backend()
 
     if backend == "supabase":
-        client = _get_user_client()
+        user_client = _get_user_client()
+        admin = _get_admin_client()
+        client = user_client or admin
         if not client:
             return False, "Supabase client not available."
         try:
-            res = client.table("journey_events").select("*").eq("id", event_id).execute()
-            if not res.data or len(res.data) == 0:
+            ev = None
+            if user_client:
+                try:
+                    res = user_client.table("journey_events").select("*").eq("id", event_id).execute()
+                    if res.data and len(res.data) > 0:
+                        ev = res.data[0]
+                except Exception:
+                    pass
+            if not ev and admin:
+                try:
+                    res = admin.table("journey_events").select("*").eq("id", event_id).execute()
+                    if res.data and len(res.data) > 0:
+                        ev = res.data[0]
+                except Exception:
+                    pass
+
+            if not ev:
                 return False, "Event record not found."
-            event = res.data[0]
-            if user_role != "admin" and str(event["actor_id"]) != str(user_id):
+
+            event_actor_id = str(ev.get("actor_id") or "").strip()
+            req_user_id = str(user_id or "").strip()
+
+            # Authorization: Admin can delete any event.
+            # Other roles (aspirant, guide, sme) can ONLY delete their own contributions.
+            if str(user_role).lower() != "admin" and event_actor_id != req_user_id:
                 return False, "Permission denied: You can only delete your own journey contributions."
-            client.table("journey_events").update({
-                "deleted_at": datetime.now(timezone.utc).isoformat(),
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            payload = {
+                "deleted_at": now_iso,
                 "deleted_by": user_id
-            }).eq("id", event_id).execute()
-            return True, None
+            }
+
+            # Try updating with user_client first to respect RLS
+            updated = False
+            if user_client:
+                try:
+                    u_res = user_client.table("journey_events").update(payload).eq("id", event_id).execute()
+                    if u_res.data and len(u_res.data) > 0:
+                        updated = True
+                except Exception:
+                    pass
+
+            # Fall back to admin client if user_client failed or RLS blocked UPDATE (e.g. for SME)
+            if not updated and admin:
+                try:
+                    a_res = admin.table("journey_events").update(payload).eq("id", event_id).execute()
+                    if a_res.data and len(a_res.data) > 0:
+                        updated = True
+                except Exception as ex:
+                    print(f"[Journey] soft_delete_event admin update error: {ex}")
+
+            if updated:
+                return True, None
+            return False, "Failed to update deletion status in database."
         except Exception as e:
             return False, f"Failed to delete event: {e}"
 
@@ -734,7 +780,7 @@ def soft_delete_event(event_id: str, user_id: str, user_role: str) -> Tuple[bool
         return False, "Event record not found."
 
     event = dict(row)
-    if user_role != "admin" and event["actor_id"] != user_id:
+    if str(user_role).lower() != "admin" and str(event.get("actor_id")) != str(user_id):
         return False, "Permission denied: You can only delete your own journey contributions."
 
     success = local_db.soft_delete_journey_event(event_id, user_id)

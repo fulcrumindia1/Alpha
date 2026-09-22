@@ -242,6 +242,16 @@ def render_guide_portal(user_profile: dict):
                                     st.warning("Please fill in both title and description.")
 
                     st.markdown(f"#### Complete Journey Narrative Spine")
+                    if "del_event_success" in st.session_state:
+                        _d_msg = st.session_state.pop("del_event_success")
+                        st.success(_d_msg)
+                        try:
+                            st.toast(_d_msg, icon="✅")
+                        except Exception:
+                            pass
+                    if "del_event_err" in st.session_state:
+                        st.error(st.session_state.pop("del_event_err"))
+
                     timeline = get_journey_timeline(selected_asp_id)
                     if not timeline:
                         st.info("No journey events recorded yet for this founder.")
@@ -297,7 +307,11 @@ def render_guide_portal(user_profile: dict):
                             with col_act:
                                 if event.get("actor_id") == guide_id and actor_role == "guide":
                                     if st.button("🗑️", key=f"guide_del_{event['id']}", help="Delete your contribution"):
-                                        soft_delete_event(event["id"], guide_id, "guide")
+                                        ok, err = soft_delete_event(event["id"], guide_id, "guide")
+                                        if ok:
+                                            st.session_state["del_event_success"] = "Mentorship contribution deleted."
+                                        else:
+                                            st.session_state["del_event_err"] = err or "Could not delete contribution."
                                         st.rerun()
 
                 # ─────────────────────────────────────────────────────────

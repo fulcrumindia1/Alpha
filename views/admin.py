@@ -240,6 +240,16 @@ def render_admin_portal(admin_profile: dict):
                             else:
                                 st.warning("Please provide both title and description.")
 
+                if "del_event_success" in st.session_state:
+                    _d_msg = st.session_state.pop("del_event_success")
+                    st.success(_d_msg)
+                    try:
+                        st.toast(_d_msg, icon="✅")
+                    except Exception:
+                        pass
+                if "del_event_err" in st.session_state:
+                    st.error(st.session_state.pop("del_event_err"))
+
                 timeline = get_journey_timeline(selected_asp_id)
                 if not timeline:
                     st.info("No journey events recorded yet for this entrepreneur.")
@@ -294,7 +304,11 @@ def render_admin_portal(admin_profile: dict):
                         with col_ov:
                             # Admin override soft delete
                             if st.button("🗑️", key=f"adm_del_{event['id']}", help="Administrative removal (Soft Delete)"):
-                                soft_delete_event(event["id"], admin_id, "admin")
+                                ok, err = soft_delete_event(event["id"], admin_id, "admin")
+                                if ok:
+                                    st.session_state["del_event_success"] = "Journey entry removed."
+                                else:
+                                    st.session_state["del_event_err"] = err or "Could not remove entry."
                                 st.rerun()
 
     # ─────────────────────────────────────────────────────────────

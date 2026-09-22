@@ -360,6 +360,16 @@ def render_aspirant_portal(user_profile: dict):
                         st.warning("Please provide both title and description.")
 
         # Display Chronological Timeline
+        if "del_event_success" in st.session_state:
+            _d_msg = st.session_state.pop("del_event_success")
+            st.success(_d_msg)
+            try:
+                st.toast(_d_msg, icon="✅")
+            except Exception:
+                pass
+        if "del_event_err" in st.session_state:
+            st.error(st.session_state.pop("del_event_err"))
+
         raw_timeline = get_journey_timeline(user_id)
         # Filter out system scheme matching automation so founder never sees unreleased internal scheme calculations
         timeline = [
@@ -449,7 +459,11 @@ def render_aspirant_portal(user_profile: dict):
                     # Aspirants can delete only their own manual entries
                     if actor_role == "aspirant":
                         if st.button("🗑️", key=f"del_ev_{event['id']}", help="Delete your entry"):
-                            soft_delete_event(event["id"], user_id, "aspirant")
+                            ok, err = soft_delete_event(event["id"], user_id, "aspirant")
+                            if ok:
+                                st.session_state["del_event_success"] = "Entry deleted from your journey."
+                            else:
+                                st.session_state["del_event_err"] = err or "Could not delete entry."
                             st.rerun()
                     else:
                         # For mentor/guide/sme contributions, founder can toggle Needed or Not Needed
