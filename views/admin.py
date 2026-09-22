@@ -206,6 +206,13 @@ def render_admin_portal(admin_profile: dict):
                 st.markdown("#### Complete Chronological Journey")
 
                 with st.expander(f"➕ Log Official Administrative Directive to {curr_asp['full_name']}'s Journey", expanded=False):
+                    if "admin_directive_success" in st.session_state:
+                        _ad_msg = st.session_state.pop("admin_directive_success")
+                        st.success(_ad_msg)
+                        try:
+                            st.toast(_ad_msg, icon="✅")
+                        except Exception:
+                            pass
                     with st.form(f"form_admin_add_journey_{selected_asp_id}"):
                         c_ad1, c_ad2 = st.columns(2)
                         with c_ad1:
@@ -226,7 +233,7 @@ def render_admin_portal(admin_profile: dict):
                                 )
                                 if ev:
                                     st.session_state.pop("cached_dossier_pdf", None)
-                                    st.success(f"Administrative directive '{ad_title}' recorded to {curr_asp['full_name']}'s Journey!")
+                                    st.session_state["admin_directive_success"] = f"Administrative directive '{ad_title}' recorded to {curr_asp['full_name']}'s Journey!"
                                     st.rerun()
                                 else:
                                     st.error(err or "Failed to record directive.")
@@ -298,6 +305,13 @@ def render_admin_portal(admin_profile: dict):
         st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Guides can ONLY be created by the Admin. Public signup is disabled.</p>", unsafe_allow_html=True)
 
         with st.expander("➕ Provision New Guide Account", expanded=False):
+            if "admin_guide_create_success" in st.session_state:
+                _gc_msg = st.session_state.pop("admin_guide_create_success")
+                st.success(_gc_msg)
+                try:
+                    st.toast(_gc_msg, icon="✅")
+                except Exception:
+                    pass
             with st.form("form_create_guide"):
                 col_cg1, col_cg2 = st.columns(2)
                 with col_cg1:
@@ -329,7 +343,7 @@ def render_admin_portal(admin_profile: dict):
                             bio=cg_bio
                         )
                         if g_prof:
-                            st.success(f"Guide account '{cg_name}' created successfully! Credentials: {cg_email} / {cg_pwd}")
+                            st.session_state["admin_guide_create_success"] = f"✅ Guide account '{cg_name}' created successfully! Credentials: {cg_email} / {cg_pwd}"
                             st.rerun()
                         else:
                             st.error(err or "Failed to create guide.")
@@ -362,6 +376,13 @@ def render_admin_portal(admin_profile: dict):
         st.markdown("<p style='color:#64748B; font-size:0.9rem;'>SMEs provide specialized technical, legal, and compliance support (GST, FSSAI, Patents, Legal).</p>", unsafe_allow_html=True)
 
         with st.expander("➕ Provision New SME Account", expanded=False):
+            if "admin_sme_create_success" in st.session_state:
+                _sc_msg = st.session_state.pop("admin_sme_create_success")
+                st.success(_sc_msg)
+                try:
+                    st.toast(_sc_msg, icon="✅")
+                except Exception:
+                    pass
             with st.form("form_create_sme"):
                 col_cs1, col_cs2 = st.columns(2)
                 with col_cs1:
@@ -395,7 +416,7 @@ def render_admin_portal(admin_profile: dict):
                             industry=cs_ind
                         )
                         if s_prof:
-                            st.success(f"SME account '{cs_name}' created successfully! Credentials: {cs_email} / {cs_pwd}")
+                            st.session_state["admin_sme_create_success"] = f"✅ SME account '{cs_name}' created successfully! Credentials: {cs_email} / {cs_pwd}"
                             st.rerun()
                         else:
                             st.error(err or "Failed to create SME.")
@@ -439,6 +460,13 @@ def render_admin_portal(admin_profile: dict):
 
         with col_as1:
             st.markdown("#### Assign Dedicated Guide")
+            if "assign_guide_success" in st.session_state:
+                _g_msg = st.session_state.pop("assign_guide_success")
+                st.success(_g_msg)
+                try:
+                    st.toast(_g_msg, icon="✅")
+                except Exception:
+                    pass
             with st.form("form_assign_guide"):
                 sel_asp_for_g = st.selectbox("Select Aspirant", list(asp_dict.keys()), format_func=lambda x: asp_dict[x], key="asg_asp_g")
                 if guide_dict:
@@ -452,13 +480,20 @@ def render_admin_portal(admin_profile: dict):
                     if sel_asp_for_g and sel_g:
                         ok, err = assign_guide(sel_asp_for_g, sel_g, admin_id, g_notes)
                         if ok:
-                            st.success(f"Assigned {guide_dict[sel_g]} to {asp_dict[sel_asp_for_g]}! Journey event logged.")
+                            st.session_state["assign_guide_success"] = f"✅ Guide Assigned: {guide_dict[sel_g]} has been assigned to {asp_dict[sel_asp_for_g]}! Journey event logged."
                             st.rerun()
                         else:
                             st.error(err or "Assignment failed.")
 
         with col_as2:
             st.markdown("#### Assign Specialized Domain SME")
+            if "assign_sme_success" in st.session_state:
+                _s_msg = st.session_state.pop("assign_sme_success")
+                st.success(_s_msg)
+                try:
+                    st.toast(_s_msg, icon="✅")
+                except Exception:
+                    pass
             with st.form("form_assign_sme"):
                 sel_asp_for_s = st.selectbox("Select Aspirant", list(asp_dict.keys()), format_func=lambda x: asp_dict[x], key="asg_asp_s")
                 if sme_dict:
@@ -480,7 +515,7 @@ def render_admin_portal(admin_profile: dict):
                         ok, err = assign_sme(sel_asp_for_s, sel_s, admin_id, s_notes, mode=mode)
                         if ok:
                             action_desc = "added to advisory panel of" if mode == "add" else "assigned to"
-                            st.success(f"Specialist {sme_dict[sel_s]} {action_desc} {asp_dict[sel_asp_for_s]}! Journey event logged.")
+                            st.session_state["assign_sme_success"] = f"✅ SME Assigned: Specialist {sme_dict[sel_s]} {action_desc} {asp_dict[sel_asp_for_s]}! Journey event logged."
                             st.rerun()
                         else:
                             st.error(err or "Assignment failed.")
@@ -560,6 +595,14 @@ def render_admin_portal(admin_profile: dict):
                         )
                         st.markdown(dir_card_html, unsafe_allow_html=True)
 
+                    if f"admin_inquiry_directive_success_{q_id}" in st.session_state:
+                        _dq_msg = st.session_state.pop(f"admin_inquiry_directive_success_{q_id}")
+                        st.success(_dq_msg)
+                        try:
+                            st.toast(_dq_msg, icon="✅")
+                        except Exception:
+                            pass
+
                     with st.form(f"form_admin_dir_{q_id}"):
                         st.markdown("##### 🏛️ Issue Official Administrative Directive")
                         st.caption("The directive will be dispatched directly to the mentor. The entrepreneur will never see this administrative communication.")
@@ -594,7 +637,7 @@ def render_admin_portal(admin_profile: dict):
                                     assign_sme_id=sme_val
                                 )
                                 if ok:
-                                    st.success(f"Directive recorded and dispatched to {mentor_name} ({mentor_role_lbl})!")
+                                    st.session_state[f"admin_inquiry_directive_success_{q_id}"] = f"Directive recorded and dispatched to {mentor_name} ({mentor_role_lbl})!"
                                     st.rerun()
                                 else:
                                     st.error(err or "Failed to issue directive.")
