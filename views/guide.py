@@ -385,7 +385,7 @@ def render_guide_portal(user_profile: dict):
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                             <div>
                                 <div style="font-size:1.15rem; font-weight:800; color:#FFFFFF;">🎯 AI-Suggested Scheme Matches</div>
-                                <div style="font-size:0.85rem; color:#A5B4FC; margin-top:2px;">Algorithmically matched against {html.escape(curr_asp['full_name'])}'s venture profile, sector, stage & demographics</div>
+                                <div style="font-size:0.85rem; color:#A5B4FC; margin-top:2px;">Algorithmically matched against {_safe_esc(curr_asp.get('full_name', 'Entrepreneur'))}'s venture profile, sector, stage & demographics</div>
                             </div>
                             <span style="font-size:0.8rem; font-weight:700; background:rgba(139,92,246,0.3); color:#C4B5FD; padding:4px 12px; border-radius:8px;">Deterministic Engine</span>
                         </div>
@@ -428,10 +428,10 @@ def render_guide_portal(user_profile: dict):
                             m_status = match["recommendation_status"]
                             score_bg = "#10b981" if m_score >= 80 else "#F59E0B"
                             m_scheme = match.get("scheme", match)
-                            m_name = html.escape(match.get("name", "Scheme"))
-                            m_agency = html.escape(match.get("agency", ""))
-                            m_amount = html.escape(match.get("amount", ""))
-                            m_ftype = html.escape(match.get("funding_type", "Grant"))
+                            m_name = _safe_esc(match.get("name"), default="Scheme")
+                            m_agency = _safe_esc(match.get("agency"), default="")
+                            m_amount = _safe_esc(match.get("amount"), default="")
+                            m_ftype = _safe_esc(match.get("funding_type"), default="Grant")
                             m_id = match["id"]
 
                             with st.expander(f"{m_score}% — {match.get('name', 'Scheme')} ({m_agency}) · {m_ftype} | {match.get('amount', '')}", expanded=False):
@@ -452,9 +452,9 @@ def render_guide_portal(user_profile: dict):
 
                                 # Match reasons
                                 reasons = match.get("match_reasons", [])
-                                reasons_html = "".join([f"<li style='margin-bottom:3px;'><strong style='color:#10b981;'>✓</strong> {html.escape(r)}</li>" for r in reasons])
+                                reasons_html = "".join([f"<li style='margin-bottom:3px;'><strong style='color:#10b981;'>✓</strong> {_safe_esc(r)}</li>" for r in reasons])
                                 concerns = match.get("potential_concerns", [])
-                                concerns_html = "".join([f"<li style='margin-bottom:3px;'><strong style='color:#F59E0B;'>⚠</strong> {html.escape(c)}</li>" for c in concerns]) if concerns else ""
+                                concerns_html = "".join([f"<li style='margin-bottom:3px;'><strong style='color:#F59E0B;'>⚠</strong> {_safe_esc(c)}</li>" for c in concerns]) if concerns else ""
 
                                 st.markdown(f"""
                                 <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.5rem;">
@@ -584,9 +584,9 @@ def render_guide_portal(user_profile: dict):
                                 <div style="background:#11131F; border:1.5px solid #8B5CF6; border-radius:12px; padding:1.2rem; margin:1rem 0; box-shadow:0 4px 20px rgba(139,92,246,0.12);">
                                     <div style="display:flex; justify-content:space-between; align-items:center;">
                                         <div>
-                                            <div style="font-size:1.2rem; font-weight:800; color:#FFFFFF;">{html.escape(eval_scheme.get('name','Untitled Scheme'))}</div>
+                                            <div style="font-size:1.2rem; font-weight:800; color:#FFFFFF;">{_safe_esc(eval_scheme.get('name'), default='Untitled Scheme')}</div>
                                             <div style="font-size:0.85rem; color:#94A3B8; margin-top:2px;">
-                                                {html.escape(eval_scheme.get('agency',''))} · <span style="color:#C4B5FD; font-weight:700;">{html.escape(eval_scheme.get('funding_type','Grant'))}</span> · <span style="color:#34D399; font-weight:700;">{html.escape(eval_scheme.get('amount',''))}</span>
+                                                {_safe_esc(eval_scheme.get('agency'), default='')} · <span style="color:#C4B5FD; font-weight:700;">{_safe_esc(eval_scheme.get('funding_type'), default='Grant')}</span> · <span style="color:#34D399; font-weight:700;">{_safe_esc(eval_scheme.get('amount'), default='')}</span>
                                             </div>
                                         </div>
                                         <span style="background:{score_color}; color:#ffffff; font-weight:800; font-size:0.95rem; padding:4px 14px; border-radius:12px;">{score}% Match ({status_label})</span>
@@ -596,7 +596,7 @@ def render_guide_portal(user_profile: dict):
 
                                 # Match Reasons checklist & Eligibility
                                 reasons = evaluation.get("match_reasons", [])
-                                reasons_html = "".join([f"<li style='margin-bottom:3px;'><strong style='color:#10b981;'>✓</strong> {html.escape(r)}</li>" for r in reasons])
+                                reasons_html = "".join([f"<li style='margin-bottom:3px;'><strong style='color:#10b981;'>✓</strong> {_safe_esc(r)}</li>" for r in reasons])
                                 st.markdown(f"""
                                 <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.75rem;">
                                     <strong style="color:#166534; font-size:0.9rem;">Match Reasoning & Profile Alignment:</strong>
@@ -677,12 +677,12 @@ def render_guide_portal(user_profile: dict):
                             with c_r1:
                                 st.markdown(f"""
                                 <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid #8B5CF6; border-radius:0 10px 10px 0; padding:1rem; margin-bottom:0.6rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-                                    <div style="font-weight:800; font-size:1.05rem; color:#0F172A;">{html.escape(rel.get('scheme_name') or 'Scheme')}</div>
+                                    <div style="font-weight:800; font-size:1.05rem; color:#0F172A;">{_safe_esc(rel.get('scheme_name'), default='Scheme')}</div>
                                     <div style="font-size:0.84rem; color:#64748B; margin:2px 0 6px 0;">
-                                        {html.escape(rel.get('scheme_agency') or '')} · Released: {str(rel.get('released_at',''))[:10]}
+                                        {_safe_esc(rel.get('scheme_agency'), default='')} · Released: {str(rel.get('released_at',''))[:10]}
                                     </div>
                                     <div style="font-size:0.86rem; color:#334155; background:#F8FAFC; padding:8px 12px; border-radius:6px; border:1px solid #E2E8F0;">
-                                        <strong style="color:#7C3AED;">Recommendation Note:</strong> {html.escape(rel.get('guide_recommendation') or 'No note provided')}
+                                        <strong style="color:#7C3AED;">Recommendation Note:</strong> {_safe_esc(rel.get('guide_recommendation'), default='No note provided')}
                                     </div>
                                 </div>
                                 """, unsafe_allow_html=True)
@@ -702,7 +702,7 @@ def render_guide_portal(user_profile: dict):
                             for w in withdrawn_releases:
                                 st.markdown(f"""
                                 <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-left:4px solid #94A3B8; border-radius:0 8px 8px 0; padding:0.75rem 1rem; margin-bottom:0.5rem;">
-                                    <div style="font-weight:700; color:#475569;">{html.escape(w.get('scheme_name') or 'Scheme')}</div>
+                                    <div style="font-weight:700; color:#475569;">{_safe_esc(w.get('scheme_name'), default='Scheme')}</div>
                                     <div style="font-size:0.8rem; color:#94A3B8;">Withdrawn: {str(w.get('withdrawn_at',''))[:16]}</div>
                                 </div>
                                 """, unsafe_allow_html=True)
@@ -835,12 +835,12 @@ def render_guide_portal(user_profile: dict):
                         for q in admin_queries:
                             q_st = q.get("status", "PENDING_ADMIN")
                             q_color = "#f59e0b" if q_st == "PENDING_ADMIN" else "#10b981"
-                            q_sub = html.escape(q.get("subject", "Institutional Query"))
-                            q_msg = html.escape(q.get("message", "")).replace("\n", "<br>")
+                            q_sub = _safe_esc(q.get("subject"), default="Institutional Query")
+                            q_msg = _safe_esc(q.get("message"), default="").replace("\n", "<br>")
 
                             directive_html = ""
                             if q.get("admin_directive"):
-                                ad_text = html.escape(q.get("admin_directive", "")).replace("\n", "<br>")
+                                ad_text = _safe_esc(q.get("admin_directive"), default="").replace("\n", "<br>")
                                 dir_time = str(q.get("directive_issued_at", ""))[:16]
                                 directive_html = (
                                     f'<div style="background:#F0FDF4; border:1px solid #86EFAC; border-left:4px solid #16A34A; border-radius:0 8px 8px 0; padding:0.75rem 1rem; margin-top:0.6rem;">'

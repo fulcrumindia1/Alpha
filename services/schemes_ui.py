@@ -26,22 +26,23 @@ from services.constants import (
     MASTER_FUNDING_TYPES,
     MASTER_CATEGORY_TYPES,
     MASTER_GEOGRAPHIC_SCOPES,
-    resolve_field_choice
+    resolve_field_choice,
+    _safe_esc
 )
 
 def _format_list_item(item: str) -> str:
     s = str(item).strip()
     if s.startswith(">>"):
-        content = html.escape(s[2:].strip())
+        content = _safe_esc(s[2:].strip())
         return f'<div style="margin-bottom:4px;"><span style="color:#D97706; font-weight:900; font-size:0.95rem;">&#9654;</span> <span style="font-weight:600;">{content}</span></div>'
     elif s.startswith("!!"):
-        content = html.escape(s[2:].strip())
+        content = _safe_esc(s[2:].strip())
         return f'<div style="margin-bottom:4px;"><span style="color:#DC2626; font-weight:900; font-size:0.95rem;">&#9888;</span> <span style="font-weight:600;">{content}</span></div>'
     elif s.startswith("•"):
-        content = html.escape(s[1:].strip())
+        content = _safe_esc(s[1:].strip())
         return f'<div style="margin-bottom:4px;"><span style="color:#64748B; font-weight:800;">&bull;</span> <span style="font-weight:600;">{content}</span></div>'
     else:
-        content = html.escape(s)
+        content = _safe_esc(s)
         return f'<div style="margin-bottom:4px;"><span style="color:#64748B; font-weight:800;">&bull;</span> <span style="font-weight:600;">{content}</span></div>'
 
 def parse_list_field(val, default="None"):
@@ -137,10 +138,10 @@ def open_edit_scheme_dialog(s: dict, admin_id: str = None):
 
     st.markdown(f"""
     <div style="background:#1E293B; border-left:4px solid #8B5CF6; border-radius:8px; padding:12px 16px; margin-bottom:16px;">
-        <div style="font-size:1.15rem; font-weight:800; color:#FFFFFF;">{html.escape(name)}</div>
+        <div style="font-size:1.15rem; font-weight:800; color:#FFFFFF;">{_safe_esc(name, default='Untitled Scheme')}</div>
         <div style="font-size:0.84rem; color:#94A3B8; margin-top:4px;">
-            Agency / Institution: <strong style="color:#CBD5E1;">{html.escape(agency or 'N/A')}</strong> &nbsp;|&nbsp;
-            ID: <code style="color:#A78BFA; background:#0F172A; padding:2px 7px; border-radius:4px; font-weight:600;">{html.escape(sid)}</code>
+            Agency / Institution: <strong style="color:#CBD5E1;">{_safe_esc(agency, default='N/A')}</strong> &nbsp;|&nbsp;
+            ID: <code style="color:#A78BFA; background:#0F172A; padding:2px 7px; border-radius:4px; font-weight:600;">{_safe_esc(sid)}</code>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -346,7 +347,7 @@ def open_delete_scheme_dialog(s: dict, admin_id: str = None):
     sid = s.get("id") or s.get("source_id", "SCH-GEN")
     name = s.get("name", "Untitled Scheme")
     st.error(f"Are you sure you want to permanently delete **{name}**?")
-    st.markdown(f"<p style='color:#64748B; font-size:0.85rem;'>Scheme ID: <code>{html.escape(sid)}</code>.<br>This will permanently delete this funding opportunity from both local and cloud databases. This action cannot be undone.</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#64748B; font-size:0.85rem;'>Scheme ID: <code>{_safe_esc(sid)}</code>.<br>This will permanently delete this funding opportunity from both local and cloud databases. This action cannot be undone.</p>", unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -380,7 +381,7 @@ def render_fund_explorer_card(s: dict, is_admin: bool = False, admin_id: str = N
 
     sectors = parse_sectors_list(s.get("sectors"))
     sectors_html = "".join([
-        f'<span style="display:inline-block; font-size:0.7rem; font-weight:700; text-transform:uppercase; padding:3px 9px; border-radius:9999px; background:#1E293B; color:#E2E8F0; border:1px solid #334155; margin-right:5px; margin-bottom:5px;">{html.escape(str(sec))}</span>'
+        f'<span style="display:inline-block; font-size:0.7rem; font-weight:700; text-transform:uppercase; padding:3px 9px; border-radius:9999px; background:#1E293B; color:#E2E8F0; border:1px solid #334155; margin-right:5px; margin-bottom:5px;">{_safe_esc(str(sec))}</span>'
         for sec in sectors
     ])
     
@@ -418,7 +419,7 @@ OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone S
     if guide_recommendation:
         guide_rec_html = f"""<div style="background:rgba(139,92,246,0.18);border-left:4px solid #8B5CF6;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;margin-bottom:0.75rem;">
 <div style="font-size:0.76rem;font-weight:800;color:#C4B5FD;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">🎯 Guide Recommendation Note:</div>
-<div style="font-size:0.86rem;color:#F1F5F9;line-height:1.45;">{html.escape(guide_recommendation)}</div>
+<div style="font-size:0.86rem;color:#F1F5F9;line-height:1.45;">{_safe_esc(guide_recommendation)}</div>
 </div>"""
 
     intelligence_html = ""
@@ -436,23 +437,23 @@ OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone S
     st.markdown(f"""<div style="background:#11131F;border:1.5px solid #8B5CF6;border-radius:14px;padding:1.25rem;margin-bottom:0.75rem;box-shadow:0 4px 20px rgba(139,92,246,0.12);">
 {guide_rec_html}
 <div style="margin-bottom:0.6rem;">
-<div style="font-size:1.15rem;color:#FFFFFF;font-weight:800;line-height:1.3;margin:0 0 5px 0;">{html.escape(name)}</div>
-<div style="color:#94A3B8;font-size:0.84rem;margin:0;line-height:1.35;"><strong style="color:#CBD5E1;">Agency / Institution:</strong> {html.escape(agency)}</div>
+<div style="font-size:1.15rem;color:#FFFFFF;font-weight:800;line-height:1.3;margin:0 0 5px 0;">{_safe_esc(name, default='Untitled Scheme')}</div>
+<div style="color:#94A3B8;font-size:0.84rem;margin:0;line-height:1.35;"><strong style="color:#CBD5E1;">Agency / Institution:</strong> {_safe_esc(agency, default='Government / Syndicate')}</div>
 </div>
 <div style="margin-bottom:0.75rem;display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
-<span style="display:inline-block;font-size:0.68rem;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;padding:3px 10px;border-radius:9999px;background:rgba(139,92,246,0.22);color:#C4B5FD;border:1px solid #8B5CF6;">{html.escape(fund_type)}</span>
-<span style="display:inline-block;font-size:0.68rem;font-weight:700;padding:3px 8px;border-radius:9999px;background:rgba(59,130,246,0.15);color:#93C5FD;border:1px solid #3B82F6;">{html.escape(cat_type)}</span>
+<span style="display:inline-block;font-size:0.68rem;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;padding:3px 10px;border-radius:9999px;background:rgba(139,92,246,0.22);color:#C4B5FD;border:1px solid #8B5CF6;">{_safe_esc(fund_type, default='Grant')}</span>
+<span style="display:inline-block;font-size:0.68rem;font-weight:700;padding:3px 8px;border-radius:9999px;background:rgba(59,130,246,0.15);color:#93C5FD;border:1px solid #3B82F6;">{_safe_esc(cat_type, default='Central Govt')}</span>
 {status_badge}
 </div>
-<div style="font-size:0.95rem;color:#34D399;font-weight:700;margin-bottom:0.65rem;line-height:1.35;">Funding: {html.escape(amount)}</div>
-<div style="font-size:0.84rem;color:#CBD5E1;line-height:1.45;margin-bottom:0.85rem;">{html.escape(details[:250])}</div>
+<div style="font-size:0.95rem;color:#34D399;font-weight:700;margin-bottom:0.65rem;line-height:1.35;">Funding: {_safe_esc(amount, default='Grant / Equity Support')}</div>
+<div style="font-size:0.84rem;color:#CBD5E1;line-height:1.45;margin-bottom:0.85rem;">{_safe_esc(str(details or '')[:250])}</div>
 <div style="margin-bottom:0.85rem;">{sectors_html}
-<span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;padding:3px 9px;border-radius:9999px;background:rgba(16,185,129,0.15);color:#34D399;border:1px solid #059669;margin-bottom:5px;">{html.escape(scope_str)}</span>
+<span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;padding:3px 9px;border-radius:9999px;background:rgba(16,185,129,0.15);color:#34D399;border:1px solid #059669;margin-bottom:5px;">{_safe_esc(scope_str, default='All India')}</span>
 </div>
 {intelligence_html}
 <div style="display:flex;justify-content:space-between;align-items:center;padding-top:0.6rem;border-top:1px solid rgba(255,255,255,0.08);font-size:0.8rem;color:#94A3B8;margin-top:0.4rem;">
 <div>{portal_link_html}</div>
-<div>Verified: <strong style="color:#E2E8F0;">{html.escape(last_verified)}</strong></div>
+<div>Verified: <strong style="color:#E2E8F0;">{_safe_esc(last_verified, default='Recent')}</strong></div>
 </div>
 </div>""", unsafe_allow_html=True)
 

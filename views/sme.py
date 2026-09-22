@@ -416,7 +416,7 @@ def render_sme_portal(user_profile: dict):
                             asp_resp_html = ""
                             asp_reply = t.get('aspirant_response') or (t.get('admin_response', '').replace('Aspirant Reply: ', '') if str(t.get('admin_response', '')).startswith('Aspirant Reply: ') else '')
                             if asp_reply:
-                                a_resp = html.escape(asp_reply).replace('\n', '<br>')
+                                a_resp = _safe_esc(asp_reply).replace('\n', '<br>')
                                 asp_resp_html = f'<div style="background:#EFF6FF; border:1px solid #BFDBFE; border-left:3px solid #3B82F6; border-radius:0 6px 6px 0; padding:0.5rem 0.8rem; font-size:0.86rem; color:#1E40AF; margin-top:0.5rem;"><strong>🌱 Founder Response / Updates:</strong> {a_resp}</div>'
 
                             card_html = (
@@ -469,12 +469,12 @@ def render_sme_portal(user_profile: dict):
                         for q in sme_admin_queries:
                             q_st = q.get("status", "PENDING_ADMIN")
                             q_color = "#f59e0b" if q_st == "PENDING_ADMIN" else "#10b981"
-                            q_sub = html.escape(q.get("subject", "Institutional Query"))
-                            q_msg = html.escape(q.get("message", "")).replace("\n", "<br>")
+                            q_sub = _safe_esc(q.get("subject"), default="Institutional Query")
+                            q_msg = _safe_esc(q.get("message"), default="").replace("\n", "<br>")
 
                             directive_html = ""
                             if q.get("admin_directive"):
-                                ad_text = html.escape(q.get("admin_directive", "")).replace("\n", "<br>")
+                                ad_text = _safe_esc(q.get("admin_directive"), default="").replace("\n", "<br>")
                                 dir_time = str(q.get("directive_issued_at", ""))[:16]
                                 directive_html = (
                                     f'<div style="background:#F0FDF4; border:1px solid #86EFAC; border-left:4px solid #16A34A; border-radius:0 8px 8px 0; padding:0.75rem 1rem; margin-top:0.6rem;">'

@@ -16,7 +16,16 @@ Every dropdown provides an intuitive, professional fallback option:
 This guarantees founders, mentors, and admins are never locked out of custom niches.
 """
 
+import html
 from typing import Tuple, List, Optional
+
+def safe_escape(val, default="") -> str:
+    """Crash-proof HTML escape that safely handles None, booleans, and non-string types."""
+    if val is None:
+        return html.escape(str(default))
+    return html.escape(str(val))
+
+_safe_esc = safe_escape
 
 # ── 1. INDUSTRY SECTORS ──
 MASTER_SECTORS = [

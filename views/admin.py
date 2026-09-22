@@ -15,6 +15,12 @@ The central operations desk:
 import streamlit as st
 import html
 from datetime import datetime, timezone
+
+def _safe_esc(val, default=""):
+    """Crash-proof HTML escape that safely handles None, booleans, and non-string types."""
+    if val is None:
+        return default
+    return html.escape(str(val))
 from services.auth import admin_create_mentor, backfill_auth_users, get_data_backend
 from services.profiles import get_profile, list_profiles_by_role
 from services.relationships import get_aspirant_mentors, assign_guide, assign_sme
@@ -249,8 +255,8 @@ def render_admin_portal(admin_profile: dict):
                         ev_data = event.get("event_data", {})
                         raw_title = ev_data.get("title") or event.get("event_type") or "Milestone"
                         raw_desc = ev_data.get("description", "")
-                        title = html.escape(str(raw_title))
-                        desc = html.escape(str(raw_desc)).replace("\n", "<br>")
+                        title = _safe_esc(raw_title, default="Milestone")
+                        desc = _safe_esc(raw_desc, default="").replace("\n", "<br>")
                         date_display = str(event.get("event_date", ""))[:10]
 
                         badge_bg = "#6366f1" if actor_role == "aspirant" else "#10b981" if actor_role == "guide" else "#f59e0b" if actor_role == "sme" else "#ec4899" if actor_role == "admin" else "#64748b"
@@ -518,7 +524,7 @@ def render_admin_portal(admin_profile: dict):
                 mentor_role_lbl = (query.get("requester_role_actual") or query.get("requester_role") or "guide").upper()
                 mentor_name = query.get("requester_name") or "Mentor"
                 asp_name = query.get("aspirant_name") or "Entrepreneur"
-                q_sub = html.escape(query.get("subject", "Institutional Query"))
+                q_sub = _safe_esc(query.get("subject"), default="Institutional Query")
                 q_priority = query.get("priority", "MEDIUM")
 
                 with st.expander(f"[{q_status}] For Mentee: {asp_name} | From {mentor_role_lbl}: {mentor_name} — {q_sub} ({q_priority})", expanded=(q_status == "PENDING_ADMIN")):
@@ -532,14 +538,14 @@ def render_admin_portal(admin_profile: dict):
                         f'Submitted by: <strong>{mentor_name}</strong> ({mentor_role_lbl}) on behalf of entrepreneur: <strong style="color:#0F172A;">{asp_name}</strong>'
                         f'</div>'
                         f'<div style="font-size:0.92rem; color:#1E293B; margin-top:0.5rem; line-height:1.5;">'
-                        f'{html.escape(query.get("message", "")).replace(chr(10), "<br>")}'
+                        f'{_safe_esc(query.get("message"), default="").replace(chr(10), "<br>")}'
                         f'</div>'
                         f'</div>'
                     )
                     st.markdown(q_card_html, unsafe_allow_html=True)
 
                     if query.get("admin_directive"):
-                        ad_msg = html.escape(query.get("admin_directive", "")).replace(chr(10), "<br>")
+                        ad_msg = _safe_esc(query.get("admin_directive"), default="").replace(chr(10), "<br>")
                         ad_issued = str(query.get("directive_issued_at", ""))[:16]
                         dir_card_html = (
                             f'<div style="background:#F0FDF4; border:1px solid #86EFAC; border-left:4px solid #16A34A; border-radius:0 8px 8px 0; padding:0.75rem 1rem; margin-bottom:0.75rem;">'
