@@ -20,7 +20,18 @@ def convert_html_to_pdf(input_html_path: str, output_pdf_path: str) -> bool:
         try:
             browser = p.chromium.launch(channel="chrome", headless=True, args=launch_args)
         except Exception:
-            browser = p.chromium.launch(headless=True, args=launch_args)
+            try:
+                browser = p.chromium.launch(headless=True, args=launch_args)
+            except Exception as e:
+                if "Executable doesn't exist" in str(e) or "playwright install" in str(e):
+                    try:
+                        import subprocess
+                        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], capture_output=True, timeout=60, check=False)
+                        browser = p.chromium.launch(headless=True, args=launch_args)
+                    except Exception:
+                        raise e
+                else:
+                    raise e
 
         page = browser.new_page()
         page.set_content(html_content, wait_until="domcontentloaded", timeout=15000)
