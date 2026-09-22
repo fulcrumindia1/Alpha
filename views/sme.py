@@ -395,30 +395,31 @@ def render_sme_portal(user_profile: dict):
                             if q.get("admin_directive"):
                                 ad_text = html.escape(q.get("admin_directive", "")).replace("\n", "<br>")
                                 dir_time = str(q.get("directive_issued_at", ""))[:16]
-                                directive_html = f"""
-                                <div style="background:#F0FDF4; border:1px solid #86EFAC; border-left:4px solid #16A34A; border-radius:0 8px 8px 0; padding:0.75rem 1rem; margin-top:0.6rem;">
-                                    <div style="font-weight:800; color:#15803D; font-size:0.88rem; display:flex; justify-content:space-between;">
-                                        <span>🏛️ Official Directorate Directive</span>
-                                        <span style="font-size:0.75rem; color:#166534; font-weight:600;">Issued: {dir_time}</span>
-                                    </div>
-                                    <div style="font-size:0.9rem; color:#14532D; margin-top:0.35rem; line-height:1.5;">{ad_text}</div>
-                                </div>
-                                """
+                                directive_html = (
+                                    f'<div style="background:#F0FDF4; border:1px solid #86EFAC; border-left:4px solid #16A34A; border-radius:0 8px 8px 0; padding:0.75rem 1rem; margin-top:0.6rem;">'
+                                    f'<div style="font-weight:800; color:#15803D; font-size:0.88rem; display:flex; justify-content:space-between;">'
+                                    f'<span>🏛️ Official Directorate Directive</span>'
+                                    f'<span style="font-size:0.75rem; color:#166534; font-weight:600;">Issued: {dir_time}</span>'
+                                    f'</div>'
+                                    f'<div style="font-size:0.9rem; color:#14532D; margin-top:0.35rem; line-height:1.5;">{ad_text}</div>'
+                                    f'</div>'
+                                )
 
-                            st.markdown(f"""
-                            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid {q_color}; border-radius:0 10px 10px 0; padding:1rem; margin-bottom:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-                                <div style="display:flex; justify-content:space-between; align-items:center;">
-                                    <div>
-                                        <span style="font-weight:700; color:#0F172A; font-size:1rem;">{q_sub}</span>
-                                        <span style="font-size:0.72rem; font-weight:800; background:{q_color}; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:6px;">{q_st}</span>
-                                        <span style="font-size:0.72rem; font-weight:700; background:#F1F5F9; color:#475569; padding:2px 8px; border-radius:6px; margin-left:4px;">Priority: {q.get("priority","MEDIUM")}</span>
-                                    </div>
-                                    <div style="font-size:0.78rem; color:#64748B;">{str(q.get("created_at",""))[:16]}</div>
-                                </div>
-                                <div style="font-size:0.88rem; color:#334155; margin-top:0.4rem; line-height:1.45;">{q_msg}</div>
-                                {directive_html}
-                            </div>
-                            """, unsafe_allow_html=True)
+                            card_html = (
+                                f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid {q_color}; border-radius:0 10px 10px 0; padding:1rem; margin-bottom:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">'
+                                f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+                                f'<div>'
+                                f'<span style="font-weight:700; color:#0F172A; font-size:1rem;">{q_sub}</span>'
+                                f'<span style="font-size:0.72rem; font-weight:800; background:{q_color}; color:#ffffff; padding:2px 8px; border-radius:6px; margin-left:6px;">{q_st}</span>'
+                                f'<span style="font-size:0.72rem; font-weight:700; background:#F1F5F9; color:#475569; padding:2px 8px; border-radius:6px; margin-left:4px;">Priority: {q.get("priority","MEDIUM")}</span>'
+                                f'</div>'
+                                f'<div style="font-size:0.78rem; color:#64748B;">{str(q.get("created_at",""))[:16]}</div>'
+                                f'</div>'
+                                f'<div style="font-size:0.88rem; color:#334155; margin-top:0.4rem; line-height:1.45;">{q_msg}</div>'
+                                f'{directive_html}'
+                                f'</div>'
+                            )
+                            st.markdown(card_html, unsafe_allow_html=True)
 
                     with st.expander(f"➕ Request Institutional Support / Admin Directive for {curr_asp['full_name']}", expanded=False):
                         with st.form(f"form_sme_admin_query_{selected_asp_id}"):

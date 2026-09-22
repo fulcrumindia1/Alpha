@@ -522,33 +522,37 @@ def render_admin_portal(admin_profile: dict):
                 q_priority = query.get("priority", "MEDIUM")
 
                 with st.expander(f"[{q_status}] For Mentee: {asp_name} | From {mentor_role_lbl}: {mentor_name} — {q_sub} ({q_priority})", expanded=(q_status == "PENDING_ADMIN")):
-                    st.markdown(f"""
-                    <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-left:4px solid {st_color}; border-radius:0 8px 8px 0; padding:0.9rem 1.1rem; margin-bottom:0.75rem;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <div style="font-weight:800; color:#0F172A; font-size:1.05rem;">{q_sub}</div>
-                            <div style="font-size:0.8rem; color:#64748B;">Submitted: {str(query.get('created_at',''))[:16]}</div>
-                        </div>
-                        <div style="font-size:0.85rem; color:#475569; margin:4px 0;">
-                            Submitted by: <strong>{mentor_name}</strong> ({mentor_role_lbl}) on behalf of entrepreneur: <strong style="color:#0F172A;">{asp_name}</strong>
-                        </div>
-                        <div style="font-size:0.92rem; color:#1E293B; margin-top:0.5rem; line-height:1.5;">
-                            {html.escape(query.get('message', '')).replace(chr(10), '<br>')}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    q_card_html = (
+                        f'<div style="background:#F8FAFC; border:1px solid #E2E8F0; border-left:4px solid {st_color}; border-radius:0 8px 8px 0; padding:0.9rem 1.1rem; margin-bottom:0.75rem;">'
+                        f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+                        f'<div style="font-weight:800; color:#0F172A; font-size:1.05rem;">{q_sub}</div>'
+                        f'<div style="font-size:0.8rem; color:#64748B;">Submitted: {str(query.get("created_at",""))[:16]}</div>'
+                        f'</div>'
+                        f'<div style="font-size:0.85rem; color:#475569; margin:4px 0;">'
+                        f'Submitted by: <strong>{mentor_name}</strong> ({mentor_role_lbl}) on behalf of entrepreneur: <strong style="color:#0F172A;">{asp_name}</strong>'
+                        f'</div>'
+                        f'<div style="font-size:0.92rem; color:#1E293B; margin-top:0.5rem; line-height:1.5;">'
+                        f'{html.escape(query.get("message", "")).replace(chr(10), "<br>")}'
+                        f'</div>'
+                        f'</div>'
+                    )
+                    st.markdown(q_card_html, unsafe_allow_html=True)
 
                     if query.get("admin_directive"):
-                        st.markdown(f"""
-                        <div style="background:#F0FDF4; border:1px solid #86EFAC; border-left:4px solid #16A34A; border-radius:0 8px 8px 0; padding:0.75rem 1rem; margin-bottom:0.75rem;">
-                            <div style="font-weight:800; color:#15803D; font-size:0.88rem; display:flex; justify-content:space-between;">
-                                <span>🏛️ Issued Directorate Directive</span>
-                                <span style="font-size:0.75rem; color:#166534; font-weight:600;">Issued: {str(query.get('directive_issued_at',''))[:16]}</span>
-                            </div>
-                            <div style="font-size:0.9rem; color:#14532D; margin-top:0.35rem; line-height:1.5;">
-                                {html.escape(query.get('admin_directive','')).replace(chr(10), '<br>')}
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        ad_msg = html.escape(query.get("admin_directive", "")).replace(chr(10), "<br>")
+                        ad_issued = str(query.get("directive_issued_at", ""))[:16]
+                        dir_card_html = (
+                            f'<div style="background:#F0FDF4; border:1px solid #86EFAC; border-left:4px solid #16A34A; border-radius:0 8px 8px 0; padding:0.75rem 1rem; margin-bottom:0.75rem;">'
+                            f'<div style="font-weight:800; color:#15803D; font-size:0.88rem; display:flex; justify-content:space-between;">'
+                            f'<span>🏛️ Issued Directorate Directive</span>'
+                            f'<span style="font-size:0.75rem; color:#166534; font-weight:600;">Issued: {ad_issued}</span>'
+                            f'</div>'
+                            f'<div style="font-size:0.9rem; color:#14532D; margin-top:0.35rem; line-height:1.5;">'
+                            f'{ad_msg}'
+                            f'</div>'
+                            f'</div>'
+                        )
+                        st.markdown(dir_card_html, unsafe_allow_html=True)
 
                     with st.form(f"form_admin_dir_{q_id}"):
                         st.markdown("##### 🏛️ Issue Official Administrative Directive")
