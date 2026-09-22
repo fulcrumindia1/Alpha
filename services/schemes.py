@@ -37,9 +37,13 @@ def list_schemes(
 
     if backend == "supabase":
         client = _get_user_client()
-        if client:
+        admin = _get_admin_client()
+        reader = client if (client and hasattr(client, "auth") and client.auth.get_session()) else admin
+        if not reader:
+            reader = client or admin
+        if reader:
             try:
-                q = client.table("schemes").select("*")
+                q = reader.table("schemes").select("*")
                 if active_only:
                     q = q.eq("is_active", True)
                 if category and category != "ALL":
@@ -51,9 +55,24 @@ def list_schemes(
                 except Exception:
                     res = q.order("name", desc=False).execute()
 
-                if res.data:
+                schemes_data = res.data or []
+                if not schemes_data and admin and admin != reader:
+                    q_admin = admin.table("schemes").select("*")
+                    if active_only:
+                        q_admin = q_admin.eq("is_active", True)
+                    if category and category != "ALL":
+                        q_admin = q_admin.eq("category_type", category)
+                    if stage and stage != "ALL":
+                        q_admin = q_admin.eq("stage", stage)
+                    try:
+                        res_admin = q_admin.order("display_order", desc=False).order("name", desc=False).execute()
+                    except Exception:
+                        res_admin = q_admin.order("name", desc=False).execute()
+                    schemes_data = res_admin.data or []
+
+                if schemes_data:
                     filtered = []
-                    for s in res.data:
+                    for s in schemes_data:
                         # Filter by search term
                         if search:
                             term = search.lower()
@@ -76,6 +95,12 @@ def list_schemes(
                 return []
             except Exception as e:
                 print(f"[Schemes] Supabase list error: {e}")
+                if admin and admin != reader:
+                    try:
+                        res_admin = admin.table("schemes").select("*").eq("is_active", True).execute()
+                        return res_admin.data or []
+                    except Exception:
+                        pass
                 return []
         return []
 
@@ -743,9 +768,9 @@ def get_released_schemes_for_aspirant(aspirant_id: str) -> List[Dict]:
                     s_clean["released_at"] = r.get("released_at")
                     s_clean["eligibility_summary"] = r.get("eligibility_summary")
                     # STRICT PRIVATE INTELLIGENCE STRIPPING
-                    s_clean["hidden_agenda"] = []
-                    s_clean["red_flags"] = []
-                    s_clean["application_prompt"] = ""
+                    s_clean.pop("hidden_agenda", None)
+                    s_clean.pop("red_flags", None)
+                    s_clean.pop("application_prompt", None)
                     cleaned.append(s_clean)
                 return cleaned
             except Exception as e:

@@ -150,19 +150,30 @@ def list_notifications(user_id: str, unread_only: bool = False) -> List[Dict]:
     backend = get_data_backend()
 
     if backend == "supabase":
-        client = _get_user_client() or _get_admin_client()
-        if client:
+        client = _get_user_client()
+        admin = _get_admin_client()
+        reader = client if (client and hasattr(client, "auth") and client.auth.get_session()) else admin
+        if not reader:
+            reader = client or admin
+        if reader:
             try:
-                q = client.table("notifications").select("*").eq("user_id", user_id)
+                q = reader.table("notifications").select("*").eq("user_id", user_id)
                 if unread_only:
                     q = q.eq("is_read", False)
                 res = q.order("created_at", desc=True).limit(50).execute()
-                if res.data is not None:
+                if res.data is not None and len(res.data) > 0:
                     return res.data
+                if admin and admin != reader:
+                    q2 = admin.table("notifications").select("*").eq("user_id", user_id)
+                    if unread_only:
+                        q2 = q2.eq("is_read", False)
+                    res2 = q2.order("created_at", desc=True).limit(50).execute()
+                    if res2.data is not None:
+                        return res2.data
+                return res.data if res.data is not None else []
             except Exception as e:
                 app_logger.error("notifications", "list_notifications", f"Supabase list error for {user_id}: {e}", error=e, actor_id=user_id)
-                admin = _get_admin_client()
-                if admin and admin != client:
+                if admin and admin != reader:
                     try:
                         q2 = admin.table("notifications").select("*").eq("user_id", user_id)
                         if unread_only:
@@ -245,16 +256,38 @@ def get_unread_count(user_id: str) -> int:
     backend = get_data_backend()
 
     if backend == "supabase":
-        client = _get_user_client() or _get_admin_client()
-        if client:
+        client = _get_user_client()
+        admin = _get_admin_client()
+        reader = client if (client and hasattr(client, "auth") and client.auth.get_session()) else admin
+        if not reader:
+            reader = client or admin
+        if reader:
             try:
-                res = client.table("notifications").select("id", count="exact").eq("user_id", user_id).eq("is_read", False).execute()
+                res = reader.table("notifications").select("id", count="exact").eq("user_id", user_id).eq("is_read", False).execute()
+                if hasattr(res, "count") and res.count is not None and res.count > 0:
+                    return int(res.count)
+                if res.data is not None and len(res.data) > 0:
+                    return len(res.data)
+                if admin and admin != reader:
+                    res2 = admin.table("notifications").select("id", count="exact").eq("user_id", user_id).eq("is_read", False).execute()
+                    if hasattr(res2, "count") and res2.count is not None:
+                        return int(res2.count)
+                    if res2.data is not None:
+                        return len(res2.data)
                 if hasattr(res, "count") and res.count is not None:
                     return int(res.count)
-                if res.data is not None:
-                    return len(res.data)
+                return len(res.data) if res.data is not None else 0
             except Exception as e:
                 app_logger.error("notifications", "get_unread_count", f"Supabase unread count error: {e}", error=e, actor_id=user_id)
+                if admin and admin != reader:
+                    try:
+                        res2 = admin.table("notifications").select("id", count="exact").eq("user_id", user_id).eq("is_read", False).execute()
+                        if hasattr(res2, "count") and res2.count is not None:
+                            return int(res2.count)
+                        if res2.data is not None:
+                            return len(res2.data)
+                    except Exception:
+                        pass
                 return 0
         return 0
 
