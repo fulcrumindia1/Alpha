@@ -210,12 +210,14 @@ def update_aspirant_profile(
                 admin = _get_admin_client()
                 if admin and admin != client:
                     res = admin.table("profiles").update(updated_record).eq("id", user_id).execute()
-            client.table("journeys").update({
-                "title": f"{business_data.get('business_name') or full_name}'s Journey",
-                "business_type": business_data.get("sector") or business_data.get("business_type") or "Entrepreneurship",
-                "stage": business_data.get("stage", "idea"),
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }).eq("aspirant_id", user_id).execute()
+            admin_c = _get_admin_client() or client
+            if admin_c:
+                admin_c.table("journeys").update({
+                    "title": f"{business_data.get('business_name') or full_name}'s Journey",
+                    "business_type": business_data.get("sector") or business_data.get("business_type") or "Entrepreneurship",
+                    "stage": business_data.get("stage", "idea"),
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }).eq("aspirant_id", user_id).execute()
         except Exception as e:
             return None, f"Failed to update profile in Supabase: {e}"
     else:

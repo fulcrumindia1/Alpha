@@ -187,10 +187,18 @@ def mark_as_read(notification_id: str, user_id: str) -> bool:
     backend = get_data_backend()
 
     if backend == "supabase":
-        client = _get_user_client() or _get_admin_client()
-        if client:
+        user_client = _get_user_client()
+        admin = _get_admin_client()
+        if user_client:
             try:
-                res = client.table("notifications").update({"is_read": True}).eq("id", notification_id).eq("user_id", user_id).execute()
+                res = user_client.table("notifications").update({"is_read": True}).eq("id", notification_id).eq("user_id", user_id).execute()
+                if res.data:
+                    return True
+            except Exception:
+                pass
+        if admin:
+            try:
+                res = admin.table("notifications").update({"is_read": True}).eq("id", notification_id).eq("user_id", user_id).execute()
                 return bool(res.data)
             except Exception as e:
                 app_logger.error("notifications", "mark_as_read", f"Supabase mark_as_read error: {e}", error=e, actor_id=user_id)
@@ -208,10 +216,18 @@ def mark_all_as_read(user_id: str) -> bool:
     backend = get_data_backend()
 
     if backend == "supabase":
-        client = _get_user_client() or _get_admin_client()
-        if client:
+        user_client = _get_user_client()
+        admin = _get_admin_client()
+        if user_client:
             try:
-                res = client.table("notifications").update({"is_read": True}).eq("user_id", user_id).eq("is_read", False).execute()
+                res = user_client.table("notifications").update({"is_read": True}).eq("user_id", user_id).eq("is_read", False).execute()
+                if res.data is not None:
+                    return True
+            except Exception:
+                pass
+        if admin:
+            try:
+                res = admin.table("notifications").update({"is_read": True}).eq("user_id", user_id).eq("is_read", False).execute()
                 return res.data is not None
             except Exception as e:
                 app_logger.error("notifications", "mark_all_as_read", f"Supabase mark_all_as_read error: {e}", error=e, actor_id=user_id)
