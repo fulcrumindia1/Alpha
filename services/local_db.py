@@ -701,7 +701,7 @@ class LocalDatabase:
         import uuid
         event_id = str(uuid.uuid4())
         now_iso = datetime.now(timezone.utc).isoformat()
-        if not event_date:
+        if not event_date or str(event_date).strip() == now_iso[:10]:
             event_date = now_iso
 
         cur.execute("""
@@ -746,6 +746,26 @@ class LocalDatabase:
             d["description"] = d["event_data"].get("description", "")
             d["included_in_roadmap"] = d["event_data"].get("included_in_roadmap", True)
             res.append(d)
+
+        def _key(e):
+            ed = str(e.get("event_date") or "").strip()
+            ca = str(e.get("created_at") or "").strip()
+            date_part = ed[:10] if len(ed) >= 10 else (ca[:10] if len(ca) >= 10 else "1970-01-01")
+            has_ed_time = (
+                ("T" in ed or " " in ed)
+                and not ed.endswith("00:00:00")
+                and not ed.endswith("00:00:00+00:00")
+                and not ed.endswith("00:00:00Z")
+                and not " 00:00:00" in ed
+                and not "T00:00:00" in ed
+            )
+            if has_ed_time:
+                time_part = ed[11:]
+            else:
+                time_part = ca[11:] if len(ca) > 11 else ""
+            return (date_part, time_part, ca)
+
+        res.sort(key=_key, reverse=True)
         return res
 
     def toggle_journey_event_inclusion(

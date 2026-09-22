@@ -102,6 +102,56 @@ def get_standard_role_label(role: str, is_aspirant_facing: bool = False) -> str:
         return "System Automation"
     return role.capitalize() if role else "Contributor"
 
+def _normalize_event_date(event_date: Optional[str]) -> str:
+    """
+    Normalizes event_date. If event_date matches today's calendar date (or is empty),
+    attaches the exact current UTC timestamp so same-day entries reflect when they were posted.
+    """
+    now = datetime.now(timezone.utc)
+    if not event_date:
+        return now.isoformat()
+    raw = str(event_date).strip()
+    today_str = now.date().isoformat()
+    if raw == today_str:
+        return now.isoformat()
+    if len(raw) == 10 and raw.count("-") == 2:
+        return f"{raw}T12:00:00+00:00"
+    return raw
+
+def sort_journey_events(events: List[Dict]) -> List[Dict]:
+    """
+    Sorts journey events in reverse chronological order (most recent on top, older below).
+    - Primary sort: Calendar date of the event (YYYY-MM-DD).
+    - Same-day tie-breaker:
+        If event_date contains a specific non-midnight time, use it.
+        Otherwise, break ties using created_at DESC so entries logged today
+        always appear in the exact order they were posted (most recent at top).
+    """
+    def _key(e):
+        ed = str(e.get("event_date") or "").strip()
+        ca = str(e.get("created_at") or "").strip()
+
+        date_part = ed[:10] if len(ed) >= 10 else (ca[:10] if len(ca) >= 10 else "1970-01-01")
+
+        has_ed_time = (
+            ("T" in ed or " " in ed)
+            and not ed.endswith("00:00:00")
+            and not ed.endswith("00:00:00+00:00")
+            and not ed.endswith("00:00:00Z")
+            and not " 00:00:00" in ed
+            and not "T00:00:00" in ed
+        )
+
+        if has_ed_time:
+            time_part = ed[11:]
+        else:
+            time_part = ca[11:] if len(ca) > 11 else ""
+
+        return (date_part, time_part, ca)
+
+    events.sort(key=_key, reverse=True)
+    return events
+
 def get_journey_timeline(aspirant_id: str) -> List[Dict]:
     """
     Returns the complete chronological timeline of journey events, ordered
@@ -137,7 +187,7 @@ def get_journey_timeline(aspirant_id: str) -> List[Dict]:
                         e["description"] = data.get("description", "")
                         e["included_in_roadmap"] = (top_inc if top_inc is not None else data.get("included_in_roadmap", True)) is not False
                         timeline.append(e)
-                    return timeline
+                    return sort_journey_events(timeline)
             except Exception as e:
                 print(f"[Journey] Supabase timeline user client error: {e}")
 
@@ -167,13 +217,13 @@ def get_journey_timeline(aspirant_id: str) -> List[Dict]:
                     e["description"] = data.get("description", "")
                     e["included_in_roadmap"] = (top_inc if top_inc is not None else data.get("included_in_roadmap", True)) is not False
                     timeline.append(e)
-                return timeline
+                return sort_journey_events(timeline)
             except Exception as e:
                 pass
         return []
 
     # SQLite local fallback ONLY (when DATA_BACKEND=sqlite)
-    return get_local_db().get_journey_events(aspirant_id)
+    return sort_journey_events(get_local_db().get_journey_events(aspirant_id))
 
 def toggle_event_roadmap_inclusion(
     event_id: str,
@@ -312,7 +362,7 @@ def add_manual_aspirant_entry(
         return None, "Title and description are required."
 
     j = get_or_create_journey(aspirant_id)
-    date_str = event_date or datetime.now(timezone.utc).isoformat()
+    date_str = _normalize_event_date(event_date)
 
     event_payload = {
         "title": title.strip(),
@@ -390,7 +440,7 @@ def add_guide_contribution(
         return None, "Title and guidance description are required."
 
     j = get_or_create_journey(aspirant_id)
-    date_str = event_date or datetime.now(timezone.utc).isoformat()
+    date_str = _normalize_event_date(event_date)
 
     event_payload = {
         "title": title.strip(),
@@ -468,7 +518,7 @@ def add_admin_journey_entry(
         return None, "Title and description are required."
 
     j = get_or_create_journey(aspirant_id)
-    date_str = event_date or datetime.now(timezone.utc).isoformat()
+    date_str = _normalize_event_date(event_date)
 
     event_payload = {
         "title": title.strip(),
@@ -526,7 +576,7 @@ def add_sme_contribution(
         return None, "Title and guidance description are required."
 
     j = get_or_create_journey(aspirant_id)
-    date_str = event_date or datetime.now(timezone.utc).isoformat()
+    date_str = _normalize_event_date(event_date)
 
     event_payload = {
         "title": title.strip(),
@@ -612,7 +662,7 @@ def log_meaningful_event(
     - Help requested/resolved
     """
     j = get_or_create_journey(aspirant_id)
-    date_str = event_date or datetime.now(timezone.utc).isoformat()
+    date_str = _normalize_event_date(event_date)
 
     payload = {
         "title": title,
