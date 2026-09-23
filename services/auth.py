@@ -79,6 +79,24 @@ def get_data_backend() -> str:
         return "supabase"
     return "sqlite"
 
+def get_app_base_url() -> str:
+    """
+    Returns the production application base URL for auth redirects.
+    Checks st.secrets or os.environ['APP_URL'] first (e.g. for custom staging / local dev),
+    defaulting strictly to the production domain: https://app.fulcrumindia.online
+    """
+    url = ""
+    try:
+        if hasattr(st, "secrets"):
+            url = st.secrets.get("APP_URL", "")
+    except Exception:
+        pass
+    if not url:
+        url = os.environ.get("APP_URL", "")
+    if not url:
+        url = "https://app.fulcrumindia.online"
+    return url.strip().rstrip("/")
+
 def validate_production_configuration() -> Tuple[bool, Optional[str]]:
     """
     PART 3 — FAIL FAST ON PRODUCTION CONFIGURATION
@@ -386,6 +404,7 @@ def signup_aspirant(email: str, password: str, full_name: str, phone: str = "", 
         return None, "Supabase client is not available. Please verify credentials."
 
     try:
+        app_base = get_app_base_url()
         res = client.auth.sign_up({
             "email": email,
             "password": password,
@@ -396,7 +415,7 @@ def signup_aspirant(email: str, password: str, full_name: str, phone: str = "", 
                     "district": district,
                     "phone": phone
                 },
-                "email_redirect_to": "https://fulcrum-india.streamlit.app"
+                "email_redirect_to": app_base
             }
         })
     except Exception as e:
@@ -484,7 +503,7 @@ def signup_aspirant(email: str, password: str, full_name: str, phone: str = "", 
 def send_password_reset(email: str) -> Tuple[bool, Optional[str]]:
     """
     Triggers a password recovery email via Supabase Auth.
-    Directs the user back to the application URL: https://fulcrum-india.streamlit.app
+    Directs the user back to the application URL: https://app.fulcrumindia.online
     """
     email = email.strip().lower()
     if not email:
@@ -498,9 +517,10 @@ def send_password_reset(email: str) -> Tuple[bool, Optional[str]]:
         return False, "Supabase connection unavailable."
 
     try:
+        app_base = get_app_base_url()
         client.auth.reset_password_for_email(
             email,
-            {"redirect_to": "https://fulcrum-india.streamlit.app/?type=recovery"}
+            {"redirect_to": f"{app_base}/?type=recovery"}
         )
         return True, None
     except Exception as e:
