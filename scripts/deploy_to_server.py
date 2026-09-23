@@ -11,8 +11,8 @@ import tarfile
 import subprocess
 import toml
 
-REMOTE_HOST = "pravin@10.59.191.57"
-REMOTE_DIR = "/home/pravin/fulcrum-cluster-a"
+REMOTE_HOST = "root@187.126.114.81"
+REMOTE_DIR = "/opt/fulcrum"
 ARCHIVE_NAME = "fulcrum_deploy.tar.gz"
 
 
@@ -35,7 +35,7 @@ def create_env_file():
         f.write(f"SUPABASE_URL={url}\n")
         f.write(f"SUPABASE_PUBLISHABLE_KEY={pub_key}\n")
         f.write(f"SUPABASE_SECRET_KEY={sec_key}\n")
-        f.write(f"DOMAIN=:80\n")
+        f.write(f"DOMAIN=app.fulcrumindia.online\n")
     print("[+] Generated .env file from secrets.toml")
 
 
