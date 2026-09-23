@@ -41,7 +41,7 @@
                         Auth + PostgreSQL
 ```
 
-* Streamlit port `8501` is bound to `127.0.0.1` and internal docker network `fulcrum-net` — NEVER exposed to the public Internet.
+* Streamlit port `8501` is strictly internal to Docker network `fulcrum-net` (no host ports published) — NEVER exposed to the host or public Internet.
 * Only ports `80` (HTTP redirect) and `443` (HTTPS) are exposed publicly.
 * Caddy automatically provisions, configures, and renews Let's Encrypt SSL certificates for both `app.fulcrumindia.online` and `fulcrumindia.online`.
 
