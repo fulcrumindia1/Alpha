@@ -41,9 +41,10 @@
                         Auth + PostgreSQL
 ```
 
+* `app.fulcrumindia.online` points to this VPS (`187.126.114.81`).
+* `fulcrumindia.online` & `www.fulcrumindia.online` point to Vercel (marketing landing page) and are NOT managed by Caddy.
 * Streamlit port `8501` is strictly internal to Docker network `fulcrum-net` (no host ports published) — NEVER exposed to the host or public Internet.
-* Only ports `80` (HTTP redirect) and `443` (HTTPS) are exposed publicly.
-* Caddy automatically provisions, configures, and renews Let's Encrypt SSL certificates for both `app.fulcrumindia.online` and `fulcrumindia.online`.
+* Caddy automatically provisions, configures, and renews Let's Encrypt SSL certificates for `app.fulcrumindia.online`.
 
 ---
 
@@ -118,9 +119,8 @@ In your domain registrar DNS settings for **`fulcrumindia.online`**, add these 3
 
 | Record Type | Host / Name | Points to (Value) | TTL | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
-| **A** | `app` | `187.126.114.81` | 300 / Auto | App Portal (`app.fulcrumindia.online`) |
-| **A** | `@` | `187.126.114.81` | 300 / Auto | Root domain (`fulcrumindia.online`) |
-| **CNAME** | `www` | `fulcrumindia.online` | 300 / Auto | WWW redirect (`www.fulcrumindia.online`) |
+| **A** | `app` | `187.126.114.81` | 300 / Auto | App Portal -> Hostinger VPS (Fulcrum + Caddy) |
+| **A** / **CNAME** | `@` / `www` | *Vercel IP / CNAME* | 300 / Auto | Landing Page -> Vercel (Marketing Site) |
 
 ---
 
@@ -145,7 +145,6 @@ Open your browser and navigate to:
 ```text
 https://app.fulcrumindia.online
 ```
-*(Or navigate to `https://fulcrumindia.online` — Caddy will automatically redirect you to `app.fulcrumindia.online`)*.
 * Caddy automatically provisions the SSL certificate from Let's Encrypt in seconds.
 * Streamlit WebSocket connects cleanly over WSS with no manual reverse-proxy tuning required.
 
