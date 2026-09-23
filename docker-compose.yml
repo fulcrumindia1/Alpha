@@ -6,7 +6,7 @@ services:
     container_name: fulcrum-app
     restart: unless-stopped
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     environment:
       - DATA_BACKEND=supabase
       - SUPABASE_URL=${SUPABASE_URL}
@@ -36,6 +36,8 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-app.fulcrumindia.online}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

@@ -1,9 +1,12 @@
 # ==============================================================================
 # FULCRUM-INDIA (Cluster A) — Caddyfile Reverse Proxy
 # Automatic HTTPS + Let's Encrypt + Streamlit WebSocket Support
+# Domain: fulcrumindia.online | Portal: app.fulcrumindia.online
+# Server IP: 187.126.114.81
 # ==============================================================================
 
-{$DOMAIN:app.fulcrumindia.in} {
+# 1. Primary Application Portal (Streamlit via Reverse Proxy)
+{$DOMAIN:app.fulcrumindia.online} {
     # Reverse proxy to the internal Fulcrum Streamlit container
     reverse_proxy fulcrum:8501
 
@@ -17,3 +20,9 @@
         Referrer-Policy strict-origin-when-cross-origin
     }
 }
+
+# 2. Redirect root domain & www to the application portal
+fulcrumindia.online, www.fulcrumindia.online {
+    redir https://app.fulcrumindia.online{uri} permanent
+}
+

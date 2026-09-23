@@ -4,9 +4,11 @@
 - **Zero Complex Orchestration**: No Dokploy, no Traefik, no Kubernetes, no Redis, no Celery, no FastAPI.
 - **2 Disposable Containers**: **Caddy** (automatic HTTPS/Let's Encrypt reverse proxy) + **Fulcrum** (Streamlit on internal port 8501).
 - **1 Permanent Data Store**: **Supabase Cloud** (PostgreSQL 15+ & GoTrue Auth).
+- **Production Server IP**: `187.126.114.81` (Hostinger KVM 2)
+- **Domain**: `fulcrumindia.online` | **App Portal**: `app.fulcrumindia.online`
 - **Single-Command Operating Model**:
   ```bash
-  ssh pravin@YOUR_SERVER_IP
+  ssh root@187.126.114.81
   cd /opt/fulcrum
   ./scripts/deploy.sh
   ```
@@ -18,7 +20,8 @@
 ```text
                              INTERNET
                                 │
-                    app.fulcrumindia.in (ports 80 / 443)
+                    fulcrumindia.online (ports 80 / 443)
+                    app.fulcrumindia.online
                                 │
                                 ▼
                               CADDY
@@ -38,9 +41,9 @@
                         Auth + PostgreSQL
 ```
 
-* Streamlit port `8501` is **internal only** and NEVER exposed to the public Internet.
-* Only ports `80` (HTTP redirect) and `443` (HTTPS) are exposed.
-* Caddy automatically provisions, configures, and renews Let's Encrypt SSL certificates.
+* Streamlit port `8501` is bound to `127.0.0.1` and internal docker network `fulcrum-net` — NEVER exposed to the public Internet.
+* Only ports `80` (HTTP redirect) and `443` (HTTPS) are exposed publicly.
+* Caddy automatically provisions, configures, and renews Let's Encrypt SSL certificates for both `app.fulcrumindia.online` and `fulcrumindia.online`.
 
 ---
 
@@ -49,7 +52,7 @@
 ### Step A: Initial Server Update
 SSH into your server:
 ```bash
-ssh pravin@YOUR_SERVER_IP
+ssh root@187.126.114.81
 sudo apt update && sudo apt upgrade -y
 ```
 
@@ -59,7 +62,7 @@ Install official Docker Engine:
 sudo apt install -y curl ca-certificates git ufw
 curl -fsSL https://get.docker.com | sudo sh
 
-# Allow non-root user to run Docker
+# Allow current user to run Docker
 sudo usermod -aG docker $USER
 newgrp docker
 ```
@@ -89,7 +92,7 @@ sudo ufw enable
 ```bash
 sudo mkdir -p /opt/fulcrum
 sudo chown -R $USER:$USER /opt/fulcrum
-git clone <YOUR-GIT-REPO-URL> /opt/fulcrum
+git clone https://github.com/fulcrumindia1/Alpha.git /opt/fulcrum
 cd /opt/fulcrum
 chmod +x scripts/*.sh
 ```
@@ -106,16 +109,18 @@ SUPABASE_URL=https://<YOUR-PROJECT-ID>.supabase.co
 SUPABASE_PUBLISHABLE_KEY=eyJhbGciOi...
 SUPABASE_SECRET_KEY=eyJhbGciOi...
 
-# Optional: set custom domain if different from Caddyfile default
-DOMAIN=app.fulcrumindia.in
+# Production Domain Configuration
+DOMAIN=app.fulcrumindia.online
 ```
 
-### Step F: Configure DNS A Record
-In your domain registrar / Cloudflare / DNS provider:
-* **Record Type**: `A`
-* **Name**: `app` (or `@` for apex domain)
-* **Value**: Your Hostinger KVM 2 Public IPv4
-* **TTL**: Auto or 300s
+### Step F: Configure DNS Records (Hostinger / Domain Registrar)
+In your domain registrar DNS settings for **`fulcrumindia.online`**, add these 3 records:
+
+| Record Type | Host / Name | Points to (Value) | TTL | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| **A** | `app` | `187.126.114.81` | 300 / Auto | App Portal (`app.fulcrumindia.online`) |
+| **A** | `@` | `187.126.114.81` | 300 / Auto | Root domain (`fulcrumindia.online`) |
+| **CNAME** | `www` | `fulcrumindia.online` | 300 / Auto | WWW redirect (`www.fulcrumindia.online`) |
 
 ---
 
@@ -127,7 +132,7 @@ In your domain registrar / Cloudflare / DNS provider:
 ```
 
 The script will automatically:
-1. Pull latest code from Git.
+1. Pull latest code from Git (`main` branch).
 2. Validate `.env` and Supabase configuration.
 3. Build the Docker image.
 4. Launch `fulcrum-app` and `fulcrum-caddy`.
@@ -138,9 +143,10 @@ The script will automatically:
 ### Step H: Verify Live HTTPS
 Open your browser and navigate to:
 ```text
-https://app.fulcrumindia.in
+https://app.fulcrumindia.online
 ```
-* Caddy will automatically acquire the SSL certificate from Let's Encrypt in seconds.
+*(Or navigate to `https://fulcrumindia.online` — Caddy will automatically redirect you to `app.fulcrumindia.online`)*.
+* Caddy automatically provisions the SSL certificate from Let's Encrypt in seconds.
 * Streamlit WebSocket connects cleanly over WSS with no manual reverse-proxy tuning required.
 
 ---
