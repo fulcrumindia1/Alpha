@@ -463,76 +463,75 @@ def render_admin_portal(admin_profile: dict):
         st.markdown("<p style='color:#64748B; font-size:0.9rem;'>The Admin is the exclusive authority for pairing Aspirants with Guides and SMEs.</p>", unsafe_allow_html=True)
 
         if not aspirants:
-            st.warning("No Aspirants available for assignment.")
-            return
+            st.info("No Aspirants available for assignment yet. When entrepreneurs register, you can assign Guides and SMEs to them here.")
+        else:
+            asp_dict = {a["id"]: f"{a['full_name']} ({a.get('district','Madurai')})" for a in aspirants}
+            guide_dict = {g["id"]: f"{g['full_name']} — {g.get('profile_data',{}).get('expertise','Guide')}" for g in guides}
+            sme_dict = {s["id"]: f"{s['full_name']} — {s.get('profile_data',{}).get('expertise','SME')}" for s in smes}
 
-        asp_dict = {a["id"]: f"{a['full_name']} ({a.get('district','Madurai')})" for a in aspirants}
-        guide_dict = {g["id"]: f"{g['full_name']} — {g.get('profile_data',{}).get('expertise','Guide')}" for g in guides}
-        sme_dict = {s["id"]: f"{s['full_name']} — {s.get('profile_data',{}).get('expertise','SME')}" for s in smes}
+            col_as1, col_as2 = st.columns(2)
 
-        col_as1, col_as2 = st.columns(2)
+            with col_as1:
+                st.markdown("#### Assign Dedicated Guide")
+                if "assign_guide_success" in st.session_state:
+                    _g_msg = st.session_state.pop("assign_guide_success")
+                    st.success(_g_msg)
+                    try:
+                        st.toast(_g_msg, icon="✅")
+                    except Exception:
+                        pass
+                with st.form("form_assign_guide"):
+                    sel_asp_for_g = st.selectbox("Select Aspirant", list(asp_dict.keys()), format_func=lambda x: asp_dict[x], key="asg_asp_g")
+                    if guide_dict:
+                        sel_g = st.selectbox("Select Guide", list(guide_dict.keys()), format_func=lambda x: guide_dict[x], key="asg_guide")
+                    else:
+                        st.warning("No Guides available. Please create a Guide first.")
+                        sel_g = None
+                    g_notes = st.text_input("Mentorship Directive Notes", placeholder="e.g. Focus on PMEGP loan application & pricing")
 
-        with col_as1:
-            st.markdown("#### Assign Dedicated Guide")
-            if "assign_guide_success" in st.session_state:
-                _g_msg = st.session_state.pop("assign_guide_success")
-                st.success(_g_msg)
-                try:
-                    st.toast(_g_msg, icon="✅")
-                except Exception:
-                    pass
-            with st.form("form_assign_guide"):
-                sel_asp_for_g = st.selectbox("Select Aspirant", list(asp_dict.keys()), format_func=lambda x: asp_dict[x], key="asg_asp_g")
-                if guide_dict:
-                    sel_g = st.selectbox("Select Guide", list(guide_dict.keys()), format_func=lambda x: guide_dict[x], key="asg_guide")
-                else:
-                    st.warning("No Guides available. Please create a Guide first.")
-                    sel_g = None
-                g_notes = st.text_input("Mentorship Directive Notes", placeholder="e.g. Focus on PMEGP loan application & pricing")
+                    if st.form_submit_button("ASSIGN GUIDE", type="primary"):
+                        if sel_asp_for_g and sel_g:
+                            ok, err = assign_guide(sel_asp_for_g, sel_g, admin_id, g_notes)
+                            if ok:
+                                st.session_state["assign_guide_success"] = f"✅ Guide Assigned: {guide_dict[sel_g]} has been assigned to {asp_dict[sel_asp_for_g]}! Journey event logged."
+                                st.rerun()
+                            else:
+                                st.error(err or "Assignment failed.")
 
-                if st.form_submit_button("ASSIGN GUIDE", type="primary"):
-                    if sel_asp_for_g and sel_g:
-                        ok, err = assign_guide(sel_asp_for_g, sel_g, admin_id, g_notes)
-                        if ok:
-                            st.session_state["assign_guide_success"] = f"✅ Guide Assigned: {guide_dict[sel_g]} has been assigned to {asp_dict[sel_asp_for_g]}! Journey event logged."
-                            st.rerun()
-                        else:
-                            st.error(err or "Assignment failed.")
+            with col_as2:
+                st.markdown("#### Assign Specialized Domain SME")
+                if "assign_sme_success" in st.session_state:
+                    _s_msg = st.session_state.pop("assign_sme_success")
+                    st.success(_s_msg)
+                    try:
+                        st.toast(_s_msg, icon="✅")
+                    except Exception:
+                        pass
+                with st.form("form_assign_sme"):
+                    sel_asp_for_s = st.selectbox("Select Aspirant", list(asp_dict.keys()), format_func=lambda x: asp_dict[x], key="asg_asp_s")
+                    if sme_dict:
+                        sel_s = st.selectbox("Select SME", list(sme_dict.keys()), format_func=lambda x: sme_dict[x], key="asg_sme")
+                    else:
+                        st.warning("No SMEs available. Please create an SME first.")
+                        sel_s = None
+                    sme_asg_mode = st.radio(
+                        "Assignment Mode",
+                        options=["➕ Add Specialist to Advisory Panel (Concurrent Multi-SME)", "🔄 Replace Existing Specialist"],
+                        index=0,
+                        help="Choose whether to add this SME alongside other specialists (e.g., GST + Legal + FSSAI) or replace the existing specialist."
+                    )
+                    s_notes = st.text_input("Specialist Task Notes", placeholder="e.g. Verify GST threshold and draft audit memorandum")
 
-        with col_as2:
-            st.markdown("#### Assign Specialized Domain SME")
-            if "assign_sme_success" in st.session_state:
-                _s_msg = st.session_state.pop("assign_sme_success")
-                st.success(_s_msg)
-                try:
-                    st.toast(_s_msg, icon="✅")
-                except Exception:
-                    pass
-            with st.form("form_assign_sme"):
-                sel_asp_for_s = st.selectbox("Select Aspirant", list(asp_dict.keys()), format_func=lambda x: asp_dict[x], key="asg_asp_s")
-                if sme_dict:
-                    sel_s = st.selectbox("Select SME", list(sme_dict.keys()), format_func=lambda x: sme_dict[x], key="asg_sme")
-                else:
-                    st.warning("No SMEs available. Please create an SME first.")
-                    sel_s = None
-                sme_asg_mode = st.radio(
-                    "Assignment Mode",
-                    options=["➕ Add Specialist to Advisory Panel (Concurrent Multi-SME)", "🔄 Replace Existing Specialist"],
-                    index=0,
-                    help="Choose whether to add this SME alongside other specialists (e.g., GST + Legal + FSSAI) or replace the existing specialist."
-                )
-                s_notes = st.text_input("Specialist Task Notes", placeholder="e.g. Verify GST threshold and draft audit memorandum")
-
-                if st.form_submit_button("ASSIGN SME", type="primary"):
-                    if sel_asp_for_s and sel_s:
-                        mode = "add" if "Add" in sme_asg_mode else "replace"
-                        ok, err = assign_sme(sel_asp_for_s, sel_s, admin_id, s_notes, mode=mode)
-                        if ok:
-                            action_desc = "added to advisory panel of" if mode == "add" else "assigned to"
-                            st.session_state["assign_sme_success"] = f"✅ SME Assigned: Specialist {sme_dict[sel_s]} {action_desc} {asp_dict[sel_asp_for_s]}! Journey event logged."
-                            st.rerun()
-                        else:
-                            st.error(err or "Assignment failed.")
+                    if st.form_submit_button("ASSIGN SME", type="primary"):
+                        if sel_asp_for_s and sel_s:
+                            mode = "add" if "Add" in sme_asg_mode else "replace"
+                            ok, err = assign_sme(sel_asp_for_s, sel_s, admin_id, s_notes, mode=mode)
+                            if ok:
+                                action_desc = "added to advisory panel of" if mode == "add" else "assigned to"
+                                st.session_state["assign_sme_success"] = f"✅ SME Assigned: Specialist {sme_dict[sel_s]} {action_desc} {asp_dict[sel_asp_for_s]}! Journey event logged."
+                                st.rerun()
+                            else:
+                                st.error(err or "Assignment failed.")
 
     # ─────────────────────────────────────────────────────────────
     # TAB 5: MENTOR INQUIRIES & ADMINISTRATIVE DIRECTIVES
