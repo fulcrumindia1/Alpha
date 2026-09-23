@@ -34,16 +34,16 @@ def _format_list_item(item: str) -> str:
     s = str(item).strip()
     if s.startswith(">>"):
         content = _safe_esc(s[2:].strip())
-        return f'<div style="margin-bottom:4px;"><span style="color:#D97706; font-weight:900; font-size:0.95rem;">&#9654;</span> <span style="font-weight:600;">{content}</span></div>'
+        return f'<div style="margin-bottom:4px;"><span style="color:#F59E0B !important; font-weight:900; font-size:0.95rem;">&#9654;</span> <span style="font-weight:600; color:inherit !important;">{content}</span></div>'
     elif s.startswith("!!"):
         content = _safe_esc(s[2:].strip())
-        return f'<div style="margin-bottom:4px;"><span style="color:#DC2626; font-weight:900; font-size:0.95rem;">&#9888;</span> <span style="font-weight:600;">{content}</span></div>'
+        return f'<div style="margin-bottom:4px;"><span style="color:#EF4444 !important; font-weight:900; font-size:0.95rem;">&#9888;</span> <span style="font-weight:600; color:inherit !important;">{content}</span></div>'
     elif s.startswith("•"):
         content = _safe_esc(s[1:].strip())
-        return f'<div style="margin-bottom:4px;"><span style="color:#64748B; font-weight:800;">&bull;</span> <span style="font-weight:600;">{content}</span></div>'
+        return f'<div style="margin-bottom:4px;"><span style="color:#94A3B8 !important; font-weight:800;">&bull;</span> <span style="font-weight:600; color:inherit !important;">{content}</span></div>'
     else:
         content = _safe_esc(s)
-        return f'<div style="margin-bottom:4px;"><span style="color:#64748B; font-weight:800;">&bull;</span> <span style="font-weight:600;">{content}</span></div>'
+        return f'<div style="margin-bottom:4px;"><span style="color:#94A3B8 !important; font-weight:800;">&bull;</span> <span style="font-weight:600; color:inherit !important;">{content}</span></div>'
 
 def parse_list_field(val, default="None"):
     if not val:
@@ -381,7 +381,7 @@ def render_fund_explorer_card(s: dict, is_admin: bool = False, admin_id: str = N
 
     sectors = parse_sectors_list(s.get("sectors"))
     sectors_html = "".join([
-        f'<span style="display:inline-block; font-size:0.7rem; font-weight:700; text-transform:uppercase; padding:3px 9px; border-radius:9999px; background:#1E293B; color:#E2E8F0; border:1px solid #334155; margin-right:5px; margin-bottom:5px;">{_safe_esc(str(sec))}</span>'
+        f'<span class="sector-tag" style="display:inline-block; font-size:0.7rem; font-weight:700; text-transform:uppercase; padding:3px 9px; border-radius:9999px; background:#1E293B !important; color:#E2E8F0 !important; border:1px solid #334155; margin-right:5px; margin-bottom:5px;">{_safe_esc(str(sec))}</span>'
         for sec in sectors
     ])
     
@@ -424,31 +424,31 @@ OUTPUT FORMAT: 1-Page Executive Proposal + Budget Allocation Table + Milestone S
 
     intelligence_html = ""
     if show_private_intelligence:
-        intelligence_html = f"""<div style="background:rgba(245,158,11,0.18);border-left:4px solid #F59E0B;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.84rem;color:#FEF3C7;line-height:1.45;margin-bottom:0.65rem;">
-<div style="font-weight:800;color:#FBBF24;margin-bottom:3px;font-size:0.84rem;letter-spacing:0.3px;">🤫 INSIDER INTELLIGENCE:</div>
-<div style="color:#FEF3C7;">{agenda_text}</div>
+        intelligence_html = f"""<div class="intel-box" style="background:rgba(245,158,11,0.18) !important;border-left:4px solid #F59E0B;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.84rem;color:#FEF3C7 !important;line-height:1.45;margin-bottom:0.65rem;">
+<div style="font-weight:800;color:#FBBF24 !important;margin-bottom:3px;font-size:0.84rem;letter-spacing:0.3px;">🤫 INSIDER INTELLIGENCE:</div>
+<div style="color:#FEF3C7 !important;">{agenda_text}</div>
 </div>
-<div style="background:rgba(239,68,68,0.18);border-left:4px solid #EF4444;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.84rem;color:#FEE2E2;line-height:1.45;margin-bottom:0.75rem;">
-<div style="font-weight:800;color:#F87171;margin-bottom:3px;font-size:0.84rem;letter-spacing:0.3px;">⚠️ RED FLAGS:</div>
-<div style="color:#FEE2E2;">{flag_text}</div>
+<div class="flag-box" style="background:rgba(239,68,68,0.18) !important;border-left:4px solid #EF4444;padding:0.75rem 0.9rem;border-radius:0 8px 8px 0;font-size:0.84rem;color:#FEE2E2 !important;line-height:1.45;margin-bottom:0.75rem;">
+<div style="font-weight:800;color:#F87171 !important;margin-bottom:3px;font-size:0.84rem;letter-spacing:0.3px;">⚠️ RED FLAGS:</div>
+<div style="color:#FEE2E2 !important;">{flag_text}</div>
 </div>"""
 
     # Outer Container Card matching Playbook Fund Explorer
-    st.markdown(f"""<div style="background:#11131F;border:1.5px solid #8B5CF6;border-radius:14px;padding:1.25rem;margin-bottom:0.75rem;box-shadow:0 4px 20px rgba(139,92,246,0.12);">
+    st.markdown(f"""<div class="fund-explorer-card" style="background:#11131F !important;border:1.5px solid #8B5CF6;border-radius:14px;padding:1.25rem;margin-bottom:0.75rem;box-shadow:0 4px 20px rgba(139,92,246,0.12);">
 {guide_rec_html}
 <div style="margin-bottom:0.6rem;">
 <div style="font-size:1.15rem;color:#FFFFFF;font-weight:800;line-height:1.3;margin:0 0 5px 0;">{_safe_esc(name, default='Untitled Scheme')}</div>
 <div style="color:#94A3B8;font-size:0.84rem;margin:0;line-height:1.35;"><strong style="color:#CBD5E1;">Agency / Institution:</strong> {_safe_esc(agency, default='Government / Syndicate')}</div>
 </div>
 <div style="margin-bottom:0.75rem;display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
-<span style="display:inline-block;font-size:0.68rem;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;padding:3px 10px;border-radius:9999px;background:rgba(139,92,246,0.22);color:#C4B5FD;border:1px solid #8B5CF6;">{_safe_esc(fund_type, default='Grant')}</span>
-<span style="display:inline-block;font-size:0.68rem;font-weight:700;padding:3px 8px;border-radius:9999px;background:rgba(59,130,246,0.15);color:#93C5FD;border:1px solid #3B82F6;">{_safe_esc(cat_type, default='Central Govt')}</span>
+<span class="badge-fund" style="display:inline-block;font-size:0.68rem;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;padding:3px 10px;border-radius:9999px;background:rgba(139,92,246,0.22) !important;color:#C4B5FD !important;border:1px solid #8B5CF6;">{_safe_esc(fund_type, default='Grant')}</span>
+<span class="badge-cat" style="display:inline-block;font-size:0.68rem;font-weight:700;padding:3px 8px;border-radius:9999px;background:rgba(59,130,246,0.15) !important;color:#93C5FD !important;border:1px solid #3B82F6;">{_safe_esc(cat_type, default='Central Govt')}</span>
 {status_badge}
 </div>
 <div style="font-size:0.95rem;color:#34D399;font-weight:700;margin-bottom:0.65rem;line-height:1.35;">Funding: {_safe_esc(amount, default='Grant / Equity Support')}</div>
 <div style="font-size:0.84rem;color:#CBD5E1;line-height:1.45;margin-bottom:0.85rem;">{_safe_esc(str(details or '')[:250])}</div>
 <div style="margin-bottom:0.85rem;">{sectors_html}
-<span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;padding:3px 9px;border-radius:9999px;background:rgba(16,185,129,0.15);color:#34D399;border:1px solid #059669;margin-bottom:5px;">{_safe_esc(scope_str, default='All India')}</span>
+<span class="badge-scope" style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;padding:3px 9px;border-radius:9999px;background:rgba(16,185,129,0.15) !important;color:#34D399 !important;border:1px solid #059669;margin-bottom:5px;">{_safe_esc(scope_str, default='All India')}</span>
 </div>
 {intelligence_html}
 <div style="display:flex;justify-content:space-between;align-items:center;padding-top:0.6rem;border-top:1px solid rgba(255,255,255,0.08);font-size:0.8rem;color:#94A3B8;margin-top:0.4rem;">

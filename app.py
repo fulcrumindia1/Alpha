@@ -186,15 +186,50 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
             padding-bottom: 3rem !important;
         }
 
-        .main h1, .main h2, .main h3, .main h4, .main h5, .main h6,
-        h1, h2, h3, h4, h5, h6 {
-            color: #0F172A !important;
-            font-family: 'Avenir Next', 'Avenir', sans-serif !important;
+        .main h1, .main h2, .main h3, .main h4, .main h5, .main h6 {
+            color: #0F172A;
+            font-family: 'Avenir Next', 'Avenir', sans-serif;
         }
 
-        .main p, .main .stMarkdown, .main .stMarkdown p,
-        .stMarkdown p, .stMarkdown span {
-            color: #1E293B !important;
+        .main p, .main .stMarkdown > div > p {
+            color: #1E293B;
+        }
+
+        /* Safeguard Dark Fund Explorer Cards against global light theme */
+        .fund-explorer-card {
+            background-color: #11131F !important;
+            color: #F8FAFC !important;
+        }
+        .fund-explorer-card h1, .fund-explorer-card h2, .fund-explorer-card h3,
+        .fund-explorer-card h4, .fund-explorer-card h5, .fund-explorer-card h6,
+        .fund-explorer-card div, .fund-explorer-card p {
+            color: #CBD5E1;
+        }
+        .fund-explorer-card .sector-tag {
+            color: #E2E8F0 !important;
+            background-color: #1E293B !important;
+        }
+        .fund-explorer-card .badge-fund {
+            color: #C4B5FD !important;
+            background-color: rgba(139, 92, 246, 0.22) !important;
+        }
+        .fund-explorer-card .badge-cat {
+            color: #93C5FD !important;
+            background-color: rgba(59, 130, 246, 0.15) !important;
+        }
+        .fund-explorer-card .badge-scope {
+            color: #34D399 !important;
+            background-color: rgba(16, 185, 129, 0.15) !important;
+        }
+        .fund-explorer-card .intel-box,
+        .fund-explorer-card .intel-box span,
+        .fund-explorer-card .intel-box div {
+            color: #FEF3C7 !important;
+        }
+        .fund-explorer-card .flag-box,
+        .fund-explorer-card .flag-box span,
+        .fund-explorer-card .flag-box div {
+            color: #FEE2E2 !important;
         }
 
         /* COMPREHENSIVE WIDGET LABELS — Deep high contrast slate (Immune to OS Dark Mode) */
