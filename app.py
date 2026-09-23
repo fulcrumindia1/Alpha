@@ -186,26 +186,98 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
             padding-bottom: 3rem !important;
         }
 
-        .main h1, .main h2, .main h3, .main h4, .main h5, .main h6 {
+        .main h1, .main h2, .main h3, .main h4, .main h5, .main h6,
+        h1, h2, h3, h4, h5, h6 {
             color: #0F172A !important;
             font-family: 'Avenir Next', 'Avenir', sans-serif !important;
         }
 
-        .main p, .main .stMarkdown, .main .stMarkdown p {
+        .main p, .main .stMarkdown, .main .stMarkdown p,
+        .stMarkdown p, .stMarkdown span {
             color: #1E293B !important;
         }
 
-        .main label, .main label p {
+        /* COMPREHENSIVE WIDGET LABELS — Deep high contrast slate (Immune to OS Dark Mode) */
+        label,
+        label p,
+        label span,
+        label div,
+        .main label,
+        .main label p,
+        .main label span,
+        [data-testid="stWidgetLabel"],
+        [data-testid="stWidgetLabel"] *,
+        [data-testid="stWidgetLabel"] label,
+        [data-testid="stWidgetLabel"] p,
+        [data-testid="stWidgetLabel"] span {
             color: #0F172A !important;
             font-weight: 600 !important;
+            opacity: 1 !important;
+            visibility: visible !important;
         }
 
-        /* High contrast inputs */
-        .stTextInput input, .stTextArea textarea {
+        /* COMPREHENSIVE RADIO BUTTON LABELS & OPTIONS */
+        [data-testid="stRadio"],
+        [data-testid="stRadio"] *,
+        [data-testid="stRadio"] label,
+        [data-testid="stRadio"] label p,
+        [data-testid="stRadio"] label span,
+        [data-testid="stRadio"] label div,
+        [data-testid="stRadio"] div[role="radiogroup"] label *,
+        [data-testid="stRadio"] [data-testid="stWidgetLabel"] * {
+            color: #0F172A !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+
+        /* COMPREHENSIVE CHECKBOX LABELS */
+        [data-testid="stCheckbox"],
+        [data-testid="stCheckbox"] *,
+        [data-testid="stCheckbox"] label,
+        [data-testid="stCheckbox"] label p,
+        [data-testid="stCheckbox"] label span {
+            color: #0F172A !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+
+        /* COMPREHENSIVE SELECTBOX & DROPDOWN */
+        [data-testid="stSelectbox"] label,
+        [data-testid="stSelectbox"] label p,
+        [data-testid="stSelectbox"] [data-testid="stWidgetLabel"] *,
+        [data-baseweb="select"] *,
+        [data-baseweb="select"] div,
+        [data-baseweb="select"] span {
+            color: #0F172A !important;
+        }
+
+        /* COMPREHENSIVE INPUTS & TEXTAREAS */
+        .stTextInput input,
+        .stTextArea textarea,
+        .stNumberInput input,
+        .stDateInput input {
             background-color: #FFFFFF !important;
             color: #0F172A !important;
             border: 1px solid #CBD5E1 !important;
             border-radius: 8px !important;
+        }
+
+        /* Input Placeholders */
+        ::placeholder {
+            color: #94A3B8 !important;
+            opacity: 1 !important;
+        }
+        input::placeholder, textarea::placeholder {
+            color: #94A3B8 !important;
+            opacity: 1 !important;
+        }
+
+        /* Captions and Subtitles */
+        .stCaption,
+        .stCaption p,
+        [data-testid="stCaptionContainer"],
+        [data-testid="stCaptionContainer"] p {
+            color: #475569 !important;
         }
 
         /* Dedicated Dark Sidebar */
@@ -419,13 +491,12 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
             background-color: #F1F5F9 !important;
             padding: 6px;
             border-radius: 10px;
-            border: 1px solid #E2E8F0;
+            border: 1px solid #CBD5E1;
             margin-bottom: 1.5rem;
         }
         .stTabs [data-baseweb="tab"] {
             height: 42px;
             border-radius: 8px;
-            color: #475569 !important;
             font-size: 0.88rem;
             font-weight: 600;
             padding: 0 18px;
@@ -433,17 +504,36 @@ def inject_global_styles(is_logged_in: bool, role: str = None):
             border: none !important;
             transition: all 0.15s ease;
         }
-        .stTabs [data-baseweb="tab"]:hover {
-            color: #0F172A !important;
-            background-color: rgba(255, 255, 255, 0.7) !important;
+        /* ALL child text elements inside unselected tabs MUST be clearly dark slate */
+        .stTabs [data-baseweb="tab"],
+        .stTabs [data-baseweb="tab"] *,
+        .stTabs [data-baseweb="tab"] p,
+        .stTabs [data-baseweb="tab"] span,
+        .stTabs [data-baseweb="tab"] div {
+            color: #334155 !important;
+            opacity: 1 !important;
+            visibility: visible !important;
         }
+        .stTabs [data-baseweb="tab"]:hover {
+            background-color: rgba(255, 255, 255, 0.9) !important;
+        }
+        .stTabs [data-baseweb="tab"]:hover,
+        .stTabs [data-baseweb="tab"]:hover *,
+        .stTabs [data-baseweb="tab"]:hover p,
+        .stTabs [data-baseweb="tab"]:hover span,
+        .stTabs [data-baseweb="tab"]:hover div {
+            color: #0F172A !important;
+        }
+        /* Active tab: blue background with pure white text */
         .stTabs [aria-selected="true"] {
             background-color: #2563EB !important;
-            color: #FFFFFF !important;
             box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25) !important;
         }
+        .stTabs [aria-selected="true"],
+        .stTabs [aria-selected="true"] *,
         .stTabs [aria-selected="true"] p,
-        .stTabs [aria-selected="true"] span {
+        .stTabs [aria-selected="true"] span,
+        .stTabs [aria-selected="true"] div {
             color: #FFFFFF !important;
         }
 
