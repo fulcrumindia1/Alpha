@@ -427,10 +427,17 @@ def render_aspirant_portal(user_profile: dict):
                 # Role-specific styling
                 badge_bg = "#6366f1" if actor_role == "aspirant" else "#10b981" if actor_role == "guide" else "#f59e0b" if actor_role == "sme" else "#2563eb"
 
-                card_border = "border:1px solid #E2E8F0;"
-                card_bg = "background:#FFFFFF;"
+                is_included = event.get("included_in_roadmap", True) is not False
+                if not is_included:
+                    card_border = "border:1.5px dashed #EF4444;"
+                    card_bg = "background:#FEF2F2;"
+                    status_badge = '<div style="margin-bottom:6px;"><span style="display:inline-block; font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:10px; background:#EF4444; color:#ffffff;">✕ Excluded (Marked Not Needed)</span></div>'
+                else:
+                    card_border = "border:1px solid #E2E8F0;"
+                    card_bg = "background:#FFFFFF;"
+                    status_badge = '<div style="margin-bottom:6px;"><span style="display:inline-block; font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:10px; background:#10B981; color:#ffffff;">✓ Active on Roadmap</span></div>'
 
-                col_time, col_body, col_del = st.columns([1.2, 5.2, 0.8])
+                col_time, col_body, col_del = st.columns([1.2, 5.0, 1.0])
                 with col_time:
                     st.markdown(f"""
                     <div style="font-weight:700; color:#64748B; font-size:0.9rem;">{date_display}</div>
@@ -439,6 +446,7 @@ def render_aspirant_portal(user_profile: dict):
                 with col_body:
                     st.markdown(f"""
                     <div style="{card_bg} {card_border} border-radius:12px; padding:0.9rem 1.2rem; margin-bottom:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+                        {status_badge}
                         <div style="font-weight:700; color:#0F172A; font-size:1.05rem;">{title}</div>
                         <div style="color:#334155; font-size:0.9rem; margin-top:0.3rem; line-height:1.5;">{desc}</div>
                         <div style="font-size:0.75rem; color:#64748B; margin-top:0.4rem;">Contributor: <strong>{actor_name}</strong> ({std_role})</div>
@@ -454,6 +462,24 @@ def render_aspirant_portal(user_profile: dict):
                             else:
                                 st.session_state["del_event_err"] = err or "Could not delete entry."
                             st.rerun()
+                    else:
+                        # For contributions by Guide, SME, or Admin, the founder can curate their roadmap
+                        if is_included:
+                            if st.button("✕ Not Needed", key=f"excl_{event['id']}", help="Exclude this milestone from your roadmap"):
+                                ok, err = toggle_event_roadmap_inclusion(event["id"], user_id, False)
+                                if ok:
+                                    st.session_state["del_event_success"] = "Milestone marked as Not Needed for your roadmap."
+                                else:
+                                    st.session_state["del_event_err"] = err or "Could not update milestone."
+                                st.rerun()
+                        else:
+                            if st.button("✓ Needed", key=f"incl_{event['id']}", help="Include this milestone back in your active roadmap"):
+                                ok, err = toggle_event_roadmap_inclusion(event["id"], user_id, True)
+                                if ok:
+                                    st.session_state["del_event_success"] = "Milestone included back in your active roadmap."
+                                else:
+                                    st.session_state["del_event_err"] = err or "Could not update milestone."
+                                st.rerun()
 
     # ─────────────────────────────────────────────────────────────
     # TAB 4: MY MENTORS

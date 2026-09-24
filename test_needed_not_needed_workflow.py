@@ -17,8 +17,8 @@ print("Active Backend:", get_data_backend())
 admin_client = get_supabase_admin_client()
 
 # Fetch test aspirant and guide
-res_asp = admin_client.table("profiles").select("id").eq("email", "ravi.kumar@milletfoods.in").execute()
-res_guide = admin_client.table("profiles").select("id").eq("email", "rajendran@fulcrum.in").execute()
+res_asp = admin_client.table("profiles").select("id").eq("role", "aspirant").limit(1).execute()
+res_guide = admin_client.table("profiles").select("id").eq("role", "guide").limit(1).execute()
 asp_id = res_asp.data[0]["id"]
 guide_id = res_guide.data[0]["id"]
 

@@ -416,11 +416,18 @@ table {{ border-collapse: collapse; width: 100%; }}
             title = _safe(ev.get("title", ev.get("event_type", "Event")))
             desc = _safe(ev.get("description", ""))
 
+            is_included = ev.get("included_in_roadmap", True) is not False
+            if is_included:
+                roadmap_badge = _badge_html("Active on Roadmap", "#D1FAE5", "#065F46")
+            else:
+                roadmap_badge = _badge_html("Marked Not Needed by Aspirant", "#FEE2E2", "#991B1B")
+
             html_parts.append(f'''
             <div class="timeline-item" style="border-left-color:{txt_c};">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <div>
                         {_badge_html(label, bg_c, txt_c)}
+                        {roadmap_badge}
                         <span style="font-weight:700;font-size:12px;color:#0F172A;">{title}</span>
                     </div>
                     <span style="font-size:10px;color:#94A3B8;">{ev_date}</span>

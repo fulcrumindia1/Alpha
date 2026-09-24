@@ -367,6 +367,14 @@ def render_guide_portal(user_profile: dict):
                     st.markdown("### 🏦 Scheme Gatekeeper Workspace")
                     st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>AI-suggested matches and full catalogue access for <strong>{curr_asp['full_name']}</strong>. Evaluate, review insider intelligence & red flags, and release curated opportunities.</p>", unsafe_allow_html=True)
 
+                    if f"guide_release_success_{selected_asp_id}" in st.session_state:
+                        succ_msg = st.session_state.pop(f"guide_release_success_{selected_asp_id}")
+                        st.success(succ_msg)
+                        try:
+                            st.toast(succ_msg, icon="🚀")
+                        except Exception:
+                            pass
+
                     # ═══════════════════════════════════════════════════════
                     # SECTION A: 🎯 AI-SUGGESTED MATCHES
                     # ═══════════════════════════════════════════════════════
@@ -510,7 +518,7 @@ def render_guide_portal(user_profile: dict):
                                                 guide_note=sg_note.strip()
                                             )
                                             if ok:
-                                                st.success(f"Released '{match.get('name')}' to {curr_asp['full_name']}!")
+                                                st.session_state[f"guide_release_success_{selected_asp_id}"] = f"🚀 Successfully released '{match.get('name')}' to {curr_asp['full_name']}! The scheme is now visible in their funding portal."
                                                 st.rerun()
                                             else:
                                                 st.error(msg or "Failed to release scheme.")
@@ -643,7 +651,7 @@ def render_guide_portal(user_profile: dict):
                                                 guide_note=g_note_input.strip()
                                             )
                                             if ok:
-                                                st.success(f"Successfully released '{eval_scheme.get('name')}' to {curr_asp['full_name']}!")
+                                                st.session_state[f"guide_release_success_{selected_asp_id}"] = f"🚀 Successfully released '{eval_scheme.get('name')}' to {curr_asp['full_name']}! The scheme is now visible in their funding portal."
                                                 st.rerun()
                                             else:
                                                 st.error(msg or "Failed to release scheme.")

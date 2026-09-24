@@ -745,14 +745,24 @@ def get_released_schemes_for_aspirant(aspirant_id: str) -> List[Dict]:
                 if not res or not res.data:
                     return []
 
-                # 2. Extract scheme IDs and fetch active scheme catalogue records
+                # 2. Extract scheme IDs and fetch scheme catalogue records (admin client bypasses guide-only RLS on schemes)
                 scheme_ids = [r["scheme_id"] for r in res.data if r.get("scheme_id")]
                 if not scheme_ids:
                     return []
 
-                fetcher = admin if admin else reader
-                s_res = fetcher.table("schemes").select("*").in_("id", scheme_ids).eq("is_active", True).execute()
-                s_map = {str(s["id"]): s for s in (s_res.data or [])}
+                s_res = None
+                if admin:
+                    try:
+                        s_res = admin.table("schemes").select("*").in_("id", scheme_ids).execute()
+                    except Exception as ex:
+                        print(f"[Schemes] Admin query for released schemes failed: {ex}")
+                if not s_res or not s_res.data:
+                    try:
+                        s_res = reader.table("schemes").select("*").in_("id", scheme_ids).execute()
+                    except Exception as ex:
+                        print(f"[Schemes] Reader query for released schemes failed: {ex}")
+
+                s_map = {str(s["id"]): s for s in (s_res.data or []) if s.get("id")}
 
                 cleaned = []
                 for r in res.data:

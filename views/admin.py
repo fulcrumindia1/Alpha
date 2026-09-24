@@ -278,6 +278,12 @@ def render_admin_portal(admin_profile: dict):
 
                         badge_bg = "#6366f1" if actor_role == "aspirant" else "#10b981" if actor_role == "guide" else "#f59e0b" if actor_role == "sme" else "#ec4899" if actor_role == "admin" else "#64748b"
 
+                        is_included = event.get("included_in_roadmap", True) is not False
+                        if is_included:
+                            status_badge_html = '<div style="margin-bottom:4px;"><span style="display:inline-block; font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:10px; background:#10B981; color:#ffffff;">✓ Active on Aspirant Roadmap</span></div>'
+                        else:
+                            status_badge_html = '<div style="margin-bottom:4px;"><span style="display:inline-block; font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:10px; background:#EF4444; color:#ffffff;">⚠️ Marked \'Not Needed\' by Aspirant</span></div>'
+
                         col_t, col_b, col_ov = st.columns([1.2, 5.2, 0.8])
                         with col_t:
                             st.markdown(f"""
@@ -287,6 +293,7 @@ def render_admin_portal(admin_profile: dict):
                         with col_b:
                             st.markdown(f"""
                             <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px; padding:0.9rem 1.2rem; margin-bottom:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+                                {status_badge_html}
                                 <div style="font-weight:700; color:#0F172A; font-size:1.02rem;">{title}</div>
                                 <div style="color:#334155; font-size:0.88rem; margin-top:0.25rem; line-height:1.4;">{desc}</div>
                                 <div style="font-size:0.75rem; color:#64748B; margin-top:0.35rem;">Contributor: <strong>{actor_name}</strong> ({std_role})</div>
