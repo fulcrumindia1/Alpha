@@ -111,13 +111,28 @@ def render_guide_portal(user_profile: dict):
                 asp_tickets = [t for t in all_guide_tickets if t.get("aspirant_id") == selected_asp_id]
                 open_cnt = sum(1 for t in asp_tickets if t.get("status") in ["OPEN", "IN_PROGRESS", "ACTION_REQUIRED"])
 
+                # Scheme releases for this mentee
+                existing_releases = get_guide_scheme_releases(guide_id, selected_asp_id) or []
+                active_releases = [r for r in existing_releases if r.get("status") == "RELEASED"]
+                active_release_map = {str(r.get("scheme_id")): r for r in active_releases}
+                rel_badge = f" ({len(active_releases)} Released)" if active_releases else ""
+
+                # Global release notification alert right above the tabs
+                if f"guide_release_success_{selected_asp_id}" in st.session_state:
+                    succ_msg = st.session_state.pop(f"guide_release_success_{selected_asp_id}")
+                    st.success(succ_msg)
+                    try:
+                        st.toast(succ_msg, icon="🚀")
+                    except Exception:
+                        pass
+
                 # 5 Dedicated Context Tabs for Selected Aspirant
-                consult_label = "💬 Consultations"
+                consult_label = f"💬 Consultations ({open_cnt})" if open_cnt > 0 else "💬 Consultations"
                 subtabs = st.tabs([
                     "👤 Profile",
                     "🎬 Journey",
                     "🤝 Guidance Team",
-                    "🏦 Scheme Matches",
+                    f"🏦 Scheme Matches{rel_badge}",
                     consult_label
                 ])
 
@@ -376,6 +391,52 @@ def render_guide_portal(user_profile: dict):
                             pass
 
                     # ═══════════════════════════════════════════════════════
+                    # SECTION 0: 📋 CURRENTLY RELEASED SCHEMES
+                    # ═══════════════════════════════════════════════════════
+                    if active_releases:
+                        st.markdown(f"""
+                        <div style="background:#F0FDF4; border:1.5px solid #10B981; border-radius:12px; padding:1.1rem 1.4rem; margin-bottom:1.3rem; box-shadow:0 2px 8px rgba(16,185,129,0.08);">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <div style="font-size:1.05rem; font-weight:800; color:#14532D;">
+                                        ✅ {len(active_releases)} Scheme{'s' if len(active_releases) > 1 else ''} Currently Released to {curr_asp['full_name']}
+                                    </div>
+                                    <div style="font-size:0.85rem; color:#166534; margin-top:3px;">
+                                        Active and visible in the founder's portal under their 'Recommended Funding Schemes' tab.
+                                    </div>
+                                </div>
+                                <span style="background:#10B981; color:#FFFFFF; font-weight:800; font-size:0.85rem; padding:4px 12px; border-radius:20px;">
+                                    {len(active_releases)} LIVE IN FOUNDER PORTAL
+                                </span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        with st.expander(f"📋 View Active Releases for {curr_asp['full_name']} ({len(active_releases)})", expanded=True):
+                            for rel in active_releases:
+                                c_r1, c_r2 = st.columns([3.5, 1.2])
+                                with c_r1:
+                                    st.markdown(f"""
+                                    <div style="background:#FFFFFF; border:1px solid #BBF7D0; border-left:4px solid #10B981; border-radius:0 10px 10px 0; padding:0.9rem 1.1rem; margin-bottom:0.6rem;">
+                                        <div style="font-weight:800; font-size:1rem; color:#0F172A;">{_safe_esc(rel.get('scheme_name'), default='Scheme')}</div>
+                                        <div style="font-size:0.82rem; color:#64748B; margin:2px 0 4px 0;">
+                                            {_safe_esc(rel.get('scheme_agency'), default='')} · Released: {str(rel.get('released_at',''))[:10]}
+                                        </div>
+                                        <div style="font-size:0.85rem; color:#15803D; background:#F0FDF4; padding:6px 10px; border-radius:6px; border:1px solid #DCFCE7;">
+                                            <strong>Recommendation Note:</strong> {_safe_esc(rel.get('guide_recommendation'), default='No note provided')}
+                                        </div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                with c_r2:
+                                    st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
+                                    if st.button("📦 Withdraw Release", key=f"top_withd_{rel.get('scheme_id')}_{rel.get('id')}", use_container_width=True):
+                                        ok, w_err = withdraw_scheme_release(guide_id, selected_asp_id, rel.get("scheme_id"))
+                                        if ok:
+                                            st.session_state[f"guide_release_success_{selected_asp_id}"] = f"📦 Scheme '{rel.get('scheme_name')}' withdrawn from {curr_asp['full_name']}."
+                                            st.rerun()
+                                        else:
+                                            st.error(w_err or "Failed to withdraw scheme release.")
+
+                    # ═══════════════════════════════════════════════════════
                     # SECTION A: 🎯 AI-SUGGESTED MATCHES
                     # ═══════════════════════════════════════════════════════
                     st.markdown(f"""
@@ -430,9 +491,12 @@ def render_guide_portal(user_profile: dict):
                             m_agency = _safe_esc(match.get("agency"), default="")
                             m_amount = _safe_esc(match.get("amount"), default="")
                             m_ftype = _safe_esc(match.get("funding_type"), default="Grant")
-                            m_id = match["id"]
+                            m_id = str(match["id"])
+                            is_already_released = m_id in active_release_map
+                            rel_info = active_release_map.get(m_id)
+                            exp_title = f"✅ RELEASED · {m_score}% — {match.get('name', 'Scheme')} ({m_agency}) · {m_ftype} | {match.get('amount', '')}" if is_already_released else f"{m_score}% — {match.get('name', 'Scheme')} ({m_agency}) · {m_ftype} | {match.get('amount', '')}"
 
-                            with st.expander(f"{m_score}% — {match.get('name', 'Scheme')} ({m_agency}) · {m_ftype} | {match.get('amount', '')}", expanded=False):
+                            with st.expander(exp_title, expanded=False):
                                 # Score banner
                                 st.markdown(f"""
                                 <div style="background:#11131F; border:1.5px solid #8B5CF6; border-radius:12px; padding:1rem; margin-bottom:0.75rem; box-shadow:0 4px 20px rgba(139,92,246,0.12);">
@@ -492,36 +556,63 @@ def render_guide_portal(user_profile: dict):
                                 </div>
                                 """, unsafe_allow_html=True)
 
-                                # Release Form
-                                with st.form(f"form_sug_release_{selected_asp_id}_{m_id}_{card_idx}"):
-                                    st.markdown("##### 🎯 Release This Scheme to Aspirant")
-                                    sg_rec = st.text_area(
-                                        "Recommendation Note * (Visible to founder)",
-                                        placeholder=f"e.g. Your venture qualifies for {match.get('amount', 'this funding')} under {match.get('name')}. Prepare your DPR before applying.",
-                                        height=80,
-                                        key=f"sug_rec_{m_id}_{card_idx}"
-                                    )
-                                    sg_note = st.text_input(
-                                        "Internal Guide Note (Hidden from founder)",
-                                        placeholder="e.g. Follow up on bank branch manager contact.",
-                                        key=f"sug_note_{m_id}_{card_idx}"
-                                    )
-                                    if st.form_submit_button("🚀 RELEASE TO ASPIRANT", type="primary", use_container_width=True):
-                                        if not sg_rec.strip():
-                                            st.warning("Please provide a recommendation note.")
+                                if is_already_released and rel_info:
+                                    rel_date = str(rel_info.get("released_at", ""))[:10]
+                                    rel_rec = _safe_esc(rel_info.get("guide_recommendation", ""))
+                                    rel_note = _safe_esc(rel_info.get("guide_note", ""))
+                                    st.markdown(f"""
+                                    <div style="background:#F0FDF4; border:1.5px solid #10B981; border-left:5px solid #059669; border-radius:0 10px 10px 0; padding:1rem 1.2rem; margin-bottom:0.75rem; box-shadow:0 1px 3px rgba(16,185,129,0.1);">
+                                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                                            <div style="font-weight:800; color:#15803D; font-size:1.02rem;">
+                                                🚀 CURRENTLY RELEASED TO ASPIRANT
+                                            </div>
+                                            <span style="font-size:0.8rem; font-weight:700; background:#DCFCE7; color:#166534; padding:3px 10px; border-radius:12px;">Live in Founder Portal</span>
+                                        </div>
+                                        <div style="font-size:0.83rem; color:#475569; margin:4px 0 8px 0;">Released on: <strong>{rel_date}</strong></div>
+                                        <div style="background:#FFFFFF; border:1px solid #BBF7D0; border-radius:8px; padding:0.6rem 0.9rem; font-size:0.88rem; color:#14532D;">
+                                            <strong>Your Recommendation Note to Founder:</strong><br>{rel_rec}
+                                        </div>
+                                        {f"<div style='margin-top:0.4rem; font-size:0.82rem; color:#64748B;'><em>Private Guide Note: {rel_note}</em></div>" if rel_note else ""}
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    if st.button("📦 Withdraw Release from Aspirant", key=f"withdraw_sug_{m_id}_{card_idx}"):
+                                        ok, w_err = withdraw_scheme_release(guide_id, selected_asp_id, m_id)
+                                        if ok:
+                                            st.session_state[f"guide_release_success_{selected_asp_id}"] = f"📦 Scheme '{match.get('name')}' withdrawn from {curr_asp['full_name']}."
+                                            st.rerun()
                                         else:
-                                            ok, msg = release_scheme_to_aspirant(
-                                                guide_id=guide_id,
-                                                aspirant_id=selected_asp_id,
-                                                scheme_id=m_id,
-                                                guide_recommendation=sg_rec.strip(),
-                                                guide_note=sg_note.strip()
-                                            )
-                                            if ok:
-                                                st.session_state[f"guide_release_success_{selected_asp_id}"] = f"🚀 Successfully released '{match.get('name')}' to {curr_asp['full_name']}! The scheme is now visible in their funding portal."
-                                                st.rerun()
+                                            st.error(w_err or "Failed to withdraw.")
+                                else:
+                                    # Release Form
+                                    with st.form(f"form_sug_release_{selected_asp_id}_{m_id}_{card_idx}"):
+                                        st.markdown("##### 🎯 Release This Scheme to Aspirant")
+                                        sg_rec = st.text_area(
+                                            "Recommendation Note * (Visible to founder)",
+                                            placeholder=f"e.g. Your venture qualifies for {match.get('amount', 'this funding')} under {match.get('name')}. Prepare your DPR before applying.",
+                                            height=80,
+                                            key=f"sug_rec_{m_id}_{card_idx}"
+                                        )
+                                        sg_note = st.text_input(
+                                            "Internal Guide Note (Hidden from founder)",
+                                            placeholder="e.g. Follow up on bank branch manager contact.",
+                                            key=f"sug_note_{m_id}_{card_idx}"
+                                        )
+                                        if st.form_submit_button("🚀 RELEASE TO ASPIRANT", type="primary", use_container_width=True):
+                                            if not sg_rec.strip():
+                                                st.warning("Please provide a recommendation note.")
                                             else:
-                                                st.error(msg or "Failed to release scheme.")
+                                                ok, msg = release_scheme_to_aspirant(
+                                                    guide_id=guide_id,
+                                                    aspirant_id=selected_asp_id,
+                                                    scheme_id=m_id,
+                                                    guide_recommendation=sg_rec.strip(),
+                                                    guide_note=sg_note.strip()
+                                                )
+                                                if ok:
+                                                    st.session_state[f"guide_release_success_{selected_asp_id}"] = f"🚀 Successfully released '{match.get('name')}' to {curr_asp['full_name']}! The scheme is now visible in their funding portal."
+                                                    st.rerun()
+                                                else:
+                                                    st.error(msg or "Failed to release scheme.")
 
                         # Render top 10
                         for idx, m in enumerate(top_matches):
@@ -625,36 +716,65 @@ def render_guide_portal(user_profile: dict):
                                 </div>
                                 """, unsafe_allow_html=True)
 
-                                # Release Action Form
-                                with st.form(f"form_release_{selected_asp_id}_{eval_scheme_id}"):
-                                    st.markdown("#### 🎯 Release Scheme to Aspirant")
-                                    g_rec_input = st.text_area(
-                                        "Guide Recommendation Note for Aspirant * (Visible to the founder)",
-                                        placeholder=f"e.g. Recommended because your venture qualifies for 35% capital subsidy under {eval_scheme.get('name')}. Ensure your project DPR is completed before applying.",
-                                        height=90
-                                    )
-                                    g_note_input = st.text_input(
-                                        "Internal Guide Note (Private record for Guide and Admin, hidden from founder)",
-                                        placeholder="e.g. Founder needs follow-up session on bank branch manager contact."
-                                    )
-
-                                    rel_submit = st.form_submit_button("🚀 RELEASE TO ASPIRANT", type="primary", use_container_width=True)
-                                    if rel_submit:
-                                        if not g_rec_input.strip():
-                                            st.warning("Please provide a recommendation note explaining why you recommend this scheme.")
+                                b_is_released = str(eval_scheme_id) in active_release_map
+                                if b_is_released:
+                                    b_rel = active_release_map[str(eval_scheme_id)]
+                                    b_date = str(b_rel.get("released_at", ""))[:10]
+                                    b_rec = _safe_esc(b_rel.get("guide_recommendation", ""))
+                                    b_note = _safe_esc(b_rel.get("guide_note", ""))
+                                    st.markdown(f"""
+                                    <div style="background:#F0FDF4; border:1.5px solid #10B981; border-left:5px solid #059669; border-radius:0 10px 10px 0; padding:1rem 1.2rem; margin-bottom:1rem; box-shadow:0 1px 3px rgba(16,185,129,0.1);">
+                                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                                            <div style="font-weight:800; color:#15803D; font-size:1.02rem;">
+                                                🚀 CURRENTLY RELEASED TO ASPIRANT
+                                            </div>
+                                            <span style="font-size:0.8rem; font-weight:700; background:#DCFCE7; color:#166534; padding:3px 10px; border-radius:12px;">Live in Founder Portal</span>
+                                        </div>
+                                        <div style="font-size:0.83rem; color:#475569; margin:4px 0 8px 0;">Released on: <strong>{b_date}</strong></div>
+                                        <div style="background:#FFFFFF; border:1px solid #BBF7D0; border-radius:8px; padding:0.6rem 0.9rem; font-size:0.88rem; color:#14532D;">
+                                            <strong>Your Recommendation Note to Founder:</strong><br>{b_rec}
+                                        </div>
+                                        {f"<div style='margin-top:0.4rem; font-size:0.82rem; color:#64748B;'><em>Private Guide Note: {b_note}</em></div>" if b_note else ""}
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    if st.button("📦 Withdraw Release from Aspirant", key=f"withdraw_cat_{eval_scheme_id}"):
+                                        ok, w_err = withdraw_scheme_release(guide_id, selected_asp_id, eval_scheme_id)
+                                        if ok:
+                                            st.session_state[f"guide_release_success_{selected_asp_id}"] = f"📦 Scheme '{eval_scheme.get('name')}' withdrawn from {curr_asp['full_name']}."
+                                            st.rerun()
                                         else:
-                                            ok, msg = release_scheme_to_aspirant(
-                                                guide_id=guide_id,
-                                                aspirant_id=selected_asp_id,
-                                                scheme_id=eval_scheme_id,
-                                                guide_recommendation=g_rec_input.strip(),
-                                                guide_note=g_note_input.strip()
-                                            )
-                                            if ok:
-                                                st.session_state[f"guide_release_success_{selected_asp_id}"] = f"🚀 Successfully released '{eval_scheme.get('name')}' to {curr_asp['full_name']}! The scheme is now visible in their funding portal."
-                                                st.rerun()
+                                            st.error(w_err or "Failed to withdraw.")
+                                else:
+                                    # Release Action Form
+                                    with st.form(f"form_release_{selected_asp_id}_{eval_scheme_id}"):
+                                        st.markdown("#### 🎯 Release Scheme to Aspirant")
+                                        g_rec_input = st.text_area(
+                                            "Guide Recommendation Note for Aspirant * (Visible to the founder)",
+                                            placeholder=f"e.g. Recommended because your venture qualifies for 35% capital subsidy under {eval_scheme.get('name')}. Ensure your project DPR is completed before applying.",
+                                            height=90
+                                        )
+                                        g_note_input = st.text_input(
+                                            "Internal Guide Note (Private record for Guide and Admin, hidden from founder)",
+                                            placeholder="e.g. Founder needs follow-up session on bank branch manager contact."
+                                        )
+
+                                        rel_submit = st.form_submit_button("🚀 RELEASE TO ASPIRANT", type="primary", use_container_width=True)
+                                        if rel_submit:
+                                            if not g_rec_input.strip():
+                                                st.warning("Please provide a recommendation note explaining why you recommend this scheme.")
                                             else:
-                                                st.error(msg or "Failed to release scheme.")
+                                                ok, msg = release_scheme_to_aspirant(
+                                                    guide_id=guide_id,
+                                                    aspirant_id=selected_asp_id,
+                                                    scheme_id=eval_scheme_id,
+                                                    guide_recommendation=g_rec_input.strip(),
+                                                    guide_note=g_note_input.strip()
+                                                )
+                                                if ok:
+                                                    st.session_state[f"guide_release_success_{selected_asp_id}"] = f"🚀 Successfully released '{eval_scheme.get('name')}' to {curr_asp['full_name']}! The scheme is now visible in their funding portal."
+                                                    st.rerun()
+                                                else:
+                                                    st.error(msg or "Failed to release scheme.")
 
                     # ─────────────────────────────────────────────────────
                     # RELEASE HISTORY & MANAGEMENT SECTION
