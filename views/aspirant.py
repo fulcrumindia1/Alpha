@@ -126,8 +126,7 @@ def render_aspirant_portal(user_profile: dict):
         # Suppress internal system automation and unreleased scheme matches from founder highlights
         active_events = [
             e for e in (timeline or [])
-            if e.get("included_in_roadmap", True) is not False
-            and e.get("event_type") not in ("scheme_matched", "system_scheme_match")
+            if e.get("event_type") not in ("scheme_matched", "system_scheme_match")
             and (e.get("event_data") or {}).get("title") != "Funding Opportunities Identified"
             and e.get("title") != "Funding Opportunities Identified"
             and e.get("actor_role") != "system"
@@ -428,17 +427,10 @@ def render_aspirant_portal(user_profile: dict):
                 # Role-specific styling
                 badge_bg = "#6366f1" if actor_role == "aspirant" else "#10b981" if actor_role == "guide" else "#f59e0b" if actor_role == "sme" else "#2563eb"
 
-                is_included = event.get("included_in_roadmap", True) is not False
-                if is_included:
-                    status_badge = '<span style="display:inline-block; font-size:0.72rem; font-weight:700; background:#ECFDF5; color:#059669; border:1px solid #A7F3D0; padding:2px 8px; border-radius:6px;">✓ Active on Roadmap</span>'
-                    card_border = "border:1px solid #E2E8F0;"
-                    card_bg = "background:#FFFFFF;"
-                else:
-                    status_badge = '<span style="display:inline-block; font-size:0.72rem; font-weight:700; background:#FEF2F2; color:#DC2626; border:1px solid #FECACA; padding:2px 8px; border-radius:6px;">✕ Excluded (Marked Not Needed)</span>'
-                    card_border = "border:1px dashed #CBD5E1;"
-                    card_bg = "background:#F8FAFC;"
+                card_border = "border:1px solid #E2E8F0;"
+                card_bg = "background:#FFFFFF;"
 
-                col_time, col_body, col_del = st.columns([1.2, 4.8, 1.2])
+                col_time, col_body, col_del = st.columns([1.2, 5.2, 0.8])
                 with col_time:
                     st.markdown(f"""
                     <div style="font-weight:700; color:#64748B; font-size:0.9rem;">{date_display}</div>
@@ -447,10 +439,7 @@ def render_aspirant_portal(user_profile: dict):
                 with col_body:
                     st.markdown(f"""
                     <div style="{card_bg} {card_border} border-radius:12px; padding:0.9rem 1.2rem; margin-bottom:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                            <div style="font-weight:700; color:#0F172A; font-size:1.05rem;">{title}</div>
-                            <div>{status_badge}</div>
-                        </div>
+                        <div style="font-weight:700; color:#0F172A; font-size:1.05rem;">{title}</div>
                         <div style="color:#334155; font-size:0.9rem; margin-top:0.3rem; line-height:1.5;">{desc}</div>
                         <div style="font-size:0.75rem; color:#64748B; margin-top:0.4rem;">Contributor: <strong>{actor_name}</strong> ({std_role})</div>
                     </div>
@@ -465,16 +454,6 @@ def render_aspirant_portal(user_profile: dict):
                             else:
                                 st.session_state["del_event_err"] = err or "Could not delete entry."
                             st.rerun()
-                    else:
-                        # For mentor/guide/sme contributions, founder can toggle Needed or Not Needed
-                        if is_included:
-                            if st.button("✕ Not Needed", key=f"btn_toggle_{event['id']}", help="Mark this contribution as not needed for your roadmap"):
-                                toggle_event_roadmap_inclusion(event["id"], user_id, False, actor_id=user_id, actor_role="aspirant")
-                                st.rerun()
-                        else:
-                            if st.button("✓ Needed", key=f"btn_toggle_{event['id']}", help="Include this contribution on your roadmap"):
-                                toggle_event_roadmap_inclusion(event["id"], user_id, True, actor_id=user_id, actor_role="aspirant")
-                                st.rerun()
 
     # ─────────────────────────────────────────────────────────────
     # TAB 4: MY MENTORS

@@ -278,13 +278,7 @@ def render_admin_portal(admin_profile: dict):
 
                         badge_bg = "#6366f1" if actor_role == "aspirant" else "#10b981" if actor_role == "guide" else "#f59e0b" if actor_role == "sme" else "#ec4899" if actor_role == "admin" else "#64748b"
 
-                        inc = event.get("included_in_roadmap", True)
-                        if inc is False:
-                            status_badge_html = '<span style="display:inline-block; font-size:0.72rem; font-weight:700; background:#FEF2F2; color:#DC2626; border:1px solid #FECACA; padding:2px 8px; border-radius:6px; margin-left:8px;">⚠️ Marked \'Not Needed\' by Aspirant</span>'
-                        else:
-                            status_badge_html = '<span style="display:inline-block; font-size:0.72rem; font-weight:700; background:#ECFDF5; color:#059669; border:1px solid #A7F3D0; padding:2px 8px; border-radius:6px; margin-left:8px;">✓ Active on Aspirant Roadmap</span>'
-
-                        col_t, col_b, col_ov = st.columns([1.2, 5, 0.8])
+                        col_t, col_b, col_ov = st.columns([1.2, 5.2, 0.8])
                         with col_t:
                             st.markdown(f"""
                             <div style="font-weight:700; color:#64748B; font-size:0.9rem;">{date_display}</div>
@@ -293,12 +287,9 @@ def render_admin_portal(admin_profile: dict):
                         with col_b:
                             st.markdown(f"""
                             <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px; padding:0.9rem 1.2rem; margin-bottom:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-                                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                                    <div style="font-weight:700; color:#0F172A; font-size:1.02rem;">{title}</div>
-                                    <div>{status_badge_html}</div>
-                                </div>
+                                <div style="font-weight:700; color:#0F172A; font-size:1.02rem;">{title}</div>
                                 <div style="color:#334155; font-size:0.88rem; margin-top:0.25rem; line-height:1.4;">{desc}</div>
-                                <div style="font-size:0.75rem; color:#64748B; margin-top:0.3rem;">Contributor: <strong>{actor_name}</strong> ({std_role})</div>
+                                <div style="font-size:0.75rem; color:#64748B; margin-top:0.35rem;">Contributor: <strong>{actor_name}</strong> ({std_role})</div>
                             </div>
                             """, unsafe_allow_html=True)
                         with col_ov:

@@ -256,13 +256,7 @@ def render_sme_portal(user_profile: dict):
 
                             badge_bg = "#6366f1" if actor_role == "aspirant" else "#10b981" if actor_role == "guide" else "#f59e0b" if actor_role == "sme" else "#ec4899" if actor_role == "admin" else "#64748b"
 
-                            inc = event.get("included_in_roadmap", True)
-                            if inc is False:
-                                status_badge_html = '<span style="display:inline-block; font-size:0.72rem; font-weight:700; background:#FEF2F2; color:#DC2626; border:1px solid #FECACA; padding:2px 8px; border-radius:6px; margin-left:8px;">⚠️ Founder Marked: Not Needed</span>'
-                            else:
-                                status_badge_html = '<span style="display:inline-block; font-size:0.72rem; font-weight:700; background:#ECFDF5; color:#059669; border:1px solid #A7F3D0; padding:2px 8px; border-radius:6px; margin-left:8px;">✓ Active on Founder Roadmap</span>'
-
-                            col_t, col_b, col_act = st.columns([1.2, 5, 0.8])
+                            col_t, col_b, col_act = st.columns([1.2, 5.2, 0.8])
                             with col_t:
                                 st.markdown(f"""
                                 <div style="font-weight:700; color:#64748B; font-size:0.9rem;">{date_display}</div>
@@ -271,10 +265,7 @@ def render_sme_portal(user_profile: dict):
                             with col_b:
                                 st.markdown(f"""
                                 <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px; padding:0.9rem 1.2rem; margin-bottom:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-                                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                                        <div style="font-weight:700; color:#0F172A; font-size:1.05rem;">{title}</div>
-                                        <div>{status_badge_html}</div>
-                                    </div>
+                                    <div style="font-weight:700; color:#0F172A; font-size:1.05rem;">{title}</div>
                                     <div style="color:#334155; font-size:0.9rem; margin-top:0.3rem; line-height:1.5;">{desc}</div>
                                     <div style="font-size:0.75rem; color:#64748B; margin-top:0.4rem;">Contributor: <strong>{actor_name}</strong> ({std_role})</div>
                                 </div>
@@ -619,27 +610,37 @@ def render_sme_portal(user_profile: dict):
                 cur_data = {}
 
         # Profile Card
-        st.markdown(f"""
-        <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid #f59e0b; border-radius:0 12px 12px 0; padding:1.25rem; margin-bottom:1.5rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                <div>
-                    <h3 style="margin:0; color:#0F172A; font-size:1.35rem;">{cur_profile.get('full_name')}</h3>
-                    <div style="color:#D97706; font-weight:700; font-size:0.9rem; margin-top:2px;">Subject Matter Expert · {cur_profile.get('district', 'Tamil Nadu')}</div>
-                    <div style="color:#475569; font-size:0.85rem; margin-top:0.35rem;">
-                        <strong>Email:</strong> {cur_profile.get('email')} | <strong>Phone:</strong> {cur_profile.get('phone') or 'Not Set'}
-                    </div>
-                    <div style="color:#334155; font-size:0.88rem; margin-top:0.4rem;">
-                        <strong>Specialization Domain:</strong> {cur_data.get('expertise', 'Technical Compliance & Advisory')}
-                    </div>
-                    <div style="color:#334155; font-size:0.85rem; margin-top:0.2rem;">
-                        <strong>Industry Focus:</strong> {cur_data.get('industry', 'Multi-Sector')}
-                    </div>
-                    {f'<div style="font-size:0.85rem; color:#64748B; margin-top:0.4rem; font-style:italic;">"{cur_data.get("bio")}"</div>' if cur_data.get('bio') else ''}
-                </div>
-                <span style="background:#FFFBEB; color:#D97706; border:1px solid #FDE68A; font-size:0.75rem; font-weight:800; padding:3px 10px; border-radius:8px;">VERIFIED SME</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        bio_text = _safe_esc(cur_data.get("bio"))
+        bio_html = f'<div style="font-size:0.85rem; color:#64748B; margin-top:0.4rem; font-style:italic;">"{bio_text}"</div>' if bio_text else ''
+        p_name = _safe_esc(cur_profile.get('full_name') or 'Subject Matter Expert')
+        p_dist = _safe_esc(cur_profile.get('district') or 'Tamil Nadu')
+        p_email = _safe_esc(cur_profile.get('email') or '')
+        p_phone = _safe_esc(cur_profile.get('phone') or 'Not Set')
+        p_exp = _safe_esc(cur_data.get('expertise') or 'Technical Compliance & Advisory')
+        p_ind = _safe_esc(cur_data.get('industry') or 'Multi-Sector')
+
+        card_html = (
+            f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid #f59e0b; border-radius:0 12px 12px 0; padding:1.25rem; margin-bottom:1.5rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
+            f'<div style="display:flex; justify-content:space-between; align-items:flex-start;">'
+            f'<div>'
+            f'<h3 style="margin:0; color:#0F172A; font-size:1.35rem;">{p_name}</h3>'
+            f'<div style="color:#D97706; font-weight:700; font-size:0.9rem; margin-top:2px;">Subject Matter Expert · {p_dist}</div>'
+            f'<div style="color:#475569; font-size:0.85rem; margin-top:0.35rem;">'
+            f'<strong>Email:</strong> {p_email} | <strong>Phone:</strong> {p_phone}'
+            f'</div>'
+            f'<div style="color:#334155; font-size:0.88rem; margin-top:0.4rem;">'
+            f'<strong>Specialization Domain:</strong> {p_exp}'
+            f'</div>'
+            f'<div style="color:#334155; font-size:0.85rem; margin-top:0.2rem;">'
+            f'<strong>Industry Focus:</strong> {p_ind}'
+            f'</div>'
+            f'{bio_html}'
+            f'</div>'
+            f'<span style="background:#FFFBEB; color:#D97706; border:1px solid #FDE68A; font-size:0.75rem; font-weight:800; padding:3px 10px; border-radius:8px;">VERIFIED SME</span>'
+            f'</div>'
+            f'</div>'
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
 
         with st.expander("✏️ Edit My Specialist Profile & Credentials", expanded=False):
             with st.form("form_edit_sme_profile"):
