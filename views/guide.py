@@ -126,20 +126,44 @@ def render_guide_portal(user_profile: dict):
                     except Exception:
                         pass
 
-                # 5 Dedicated Context Tabs for Selected Aspirant
+                # 5 Dedicated Context Navigation Sections for Selected Aspirant
                 consult_label = f"💬 Consultations ({open_cnt})" if open_cnt > 0 else "💬 Consultations"
-                subtabs = st.tabs([
-                    "👤 Profile",
-                    "🎬 Journey",
-                    "🤝 Guidance Team",
-                    f"🏦 Scheme Matches{rel_badge}",
-                    consult_label
-                ])
+                subtab_keys = ["profile", "journey", "guidance_team", "schemes", "consultations"]
+                subtab_labels = {
+                    "profile": "👤 Profile",
+                    "journey": "🎬 Journey",
+                    "guidance_team": "🤝 Guidance Team",
+                    "schemes": f"🏦 Scheme Matches{rel_badge}",
+                    "consultations": consult_label
+                }
+
+                sub_key = f"guide_subtab_{selected_asp_id}"
+                pending_key = f"guide_subtab_pending_{selected_asp_id}"
+                if pending_key in st.session_state:
+                    st.session_state[sub_key] = st.session_state.pop(pending_key)
+                elif sub_key not in st.session_state or st.session_state[sub_key] not in subtab_keys:
+                    st.session_state[sub_key] = "profile"
+
+
+                active_subtab = st.pills(
+                    "Mentee Workspace Navigation",
+                    options=subtab_keys,
+                    format_func=lambda k: subtab_labels.get(k, k),
+                    key=sub_key,
+                    label_visibility="collapsed"
+                )
+                if not active_subtab:
+                    active_subtab = st.session_state.get(sub_key, "profile")
+
+
+                # Global notifications for current mentee actions
+                if f"guide_action_msg_{selected_asp_id}" in st.session_state:
+                    st.success(st.session_state.pop(f"guide_action_msg_{selected_asp_id}"))
 
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 1: ASPIRANT PROFILE
                 # ─────────────────────────────────────────────────────────
-                with subtabs[0]:
+                if active_subtab == "profile":
                     asp_full = get_profile(selected_asp_id) or curr_asp
                     p_data = asp_full.get("profile_data", {})
                     pers = p_data.get("personal", {})
@@ -212,7 +236,10 @@ def render_guide_portal(user_profile: dict):
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 2: ASPIRANT JOURNEY TIMELINE
                 # ─────────────────────────────────────────────────────────
-                with subtabs[1]:
+                elif active_subtab == "journey":
+                    if f"guide_journey_success_{selected_asp_id}" in st.session_state:
+                        st.success(st.session_state.pop(f"guide_journey_success_{selected_asp_id}"))
+
                     st.markdown(f"### Mentorship Workspace: {curr_asp['full_name']}")
 
                     with st.expander(f"➕ Log Mentorship Contribution to {curr_asp['full_name']}'s Journey", expanded=False):
@@ -248,8 +275,9 @@ def render_guide_portal(user_profile: dict):
                                         topic=m_topic,
                                         event_date=m_date.isoformat()
                                     )
+                                    st.session_state[f"guide_subtab_pending_{selected_asp_id}"] = "journey"
                                     if ev:
-                                        st.success(f"Added mentorship contribution to {curr_asp['full_name']}'s Journey!")
+                                        st.session_state[f"guide_journey_success_{selected_asp_id}"] = f"Added mentorship contribution to {curr_asp['full_name']}'s Journey!"
                                         st.rerun()
                                     else:
                                         st.error(err or "Failed to add contribution.")
@@ -313,6 +341,7 @@ def render_guide_portal(user_profile: dict):
                                 if event.get("actor_id") == guide_id and actor_role == "guide":
                                     if st.button("🗑️", key=f"guide_del_{event['id']}", help="Delete your contribution"):
                                         ok, err = soft_delete_event(event["id"], guide_id, "guide")
+                                        st.session_state[f"guide_subtab_pending_{selected_asp_id}"] = "journey"
                                         if ok:
                                             st.session_state["del_event_success"] = "Mentorship contribution deleted."
                                         else:
@@ -322,7 +351,7 @@ def render_guide_portal(user_profile: dict):
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 3: ASSIGNED MENTORS
                 # ─────────────────────────────────────────────────────────
-                with subtabs[2]:
+                elif active_subtab == "guidance_team":
                     st.markdown(f"### Guidance Team for {curr_asp['full_name']}")
                     st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Institutional mentors and specialized domain experts assigned to collaborate on this entrepreneur's scaling journey.</p>", unsafe_allow_html=True)
                     mentors = get_aspirant_mentors(selected_asp_id)
@@ -378,7 +407,7 @@ def render_guide_portal(user_profile: dict):
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 4: SCHEME MATCHES (THE GATEKEEPER WORKSPACE)
                 # ─────────────────────────────────────────────────────────
-                with subtabs[3]:
+                elif active_subtab == "schemes":
                     st.markdown("### 🏦 Scheme Gatekeeper Workspace")
                     st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>AI-suggested matches and full catalogue access for <strong>{curr_asp['full_name']}</strong>. Evaluate, review insider intelligence & red flags, and release curated opportunities.</p>", unsafe_allow_html=True)
 
@@ -430,6 +459,7 @@ def render_guide_portal(user_profile: dict):
                                     st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
                                     if st.button("📦 Withdraw Release", key=f"top_withd_{rel.get('scheme_id')}_{rel.get('id')}", use_container_width=True):
                                         ok, w_err = withdraw_scheme_release(guide_id, selected_asp_id, rel.get("scheme_id"))
+                                        st.session_state[f"guide_subtab_pending_{selected_asp_id}"] = "schemes"
                                         if ok:
                                             st.session_state[f"guide_release_success_{selected_asp_id}"] = f"📦 Scheme '{rel.get('scheme_name')}' withdrawn from {curr_asp['full_name']}."
                                             st.rerun()
@@ -577,6 +607,7 @@ def render_guide_portal(user_profile: dict):
                                     """, unsafe_allow_html=True)
                                     if st.button("📦 Withdraw Release from Aspirant", key=f"withdraw_sug_{m_id}_{card_idx}"):
                                         ok, w_err = withdraw_scheme_release(guide_id, selected_asp_id, m_id)
+                                        st.session_state[f"guide_subtab_pending_{selected_asp_id}"] = "schemes"
                                         if ok:
                                             st.session_state[f"guide_release_success_{selected_asp_id}"] = f"📦 Scheme '{match.get('name')}' withdrawn from {curr_asp['full_name']}."
                                             st.rerun()
@@ -608,6 +639,7 @@ def render_guide_portal(user_profile: dict):
                                                     guide_recommendation=sg_rec.strip(),
                                                     guide_note=sg_note.strip()
                                                 )
+                                                st.session_state[f"guide_subtab_pending_{selected_asp_id}"] = "schemes"
                                                 if ok:
                                                     st.session_state[f"guide_release_success_{selected_asp_id}"] = f"🚀 Successfully released '{match.get('name')}' to {curr_asp['full_name']}! The scheme is now visible in their funding portal."
                                                     st.rerun()
@@ -739,6 +771,7 @@ def render_guide_portal(user_profile: dict):
                                     """, unsafe_allow_html=True)
                                     if st.button("📦 Withdraw Release from Aspirant", key=f"withdraw_cat_{eval_scheme_id}"):
                                         ok, w_err = withdraw_scheme_release(guide_id, selected_asp_id, eval_scheme_id)
+                                        st.session_state[f"guide_subtab_pending_{selected_asp_id}"] = "schemes"
                                         if ok:
                                             st.session_state[f"guide_release_success_{selected_asp_id}"] = f"📦 Scheme '{eval_scheme.get('name')}' withdrawn from {curr_asp['full_name']}."
                                             st.rerun()
@@ -770,6 +803,7 @@ def render_guide_portal(user_profile: dict):
                                                     guide_recommendation=g_rec_input.strip(),
                                                     guide_note=g_note_input.strip()
                                                 )
+                                                st.session_state[f"guide_subtab_pending_{selected_asp_id}"] = "schemes"
                                                 if ok:
                                                     st.session_state[f"guide_release_success_{selected_asp_id}"] = f"🚀 Successfully released '{eval_scheme.get('name')}' to {curr_asp['full_name']}! The scheme is now visible in their funding portal."
                                                     st.rerun()
@@ -807,8 +841,9 @@ def render_guide_portal(user_profile: dict):
                                 st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
                                 if st.button("📦 Withdraw Release", key=f"btn_withd_{rel.get('scheme_id')}_{rel.get('id')}", use_container_width=True):
                                     ok, err = withdraw_scheme_release(guide_id, selected_asp_id, rel.get("scheme_id"))
+                                    st.session_state[f"guide_subtab_pending_{selected_asp_id}"] = "schemes"
                                     if ok:
-                                        st.success(f"Withdrew release for '{rel.get('scheme_name')}'.")
+                                        st.session_state[f"guide_release_success_{selected_asp_id}"] = f"📦 Scheme '{rel.get('scheme_name')}' withdrawn from {curr_asp['full_name']}."
                                         st.rerun()
                                     else:
                                         st.error(err or "Failed to withdraw release.")
@@ -826,7 +861,15 @@ def render_guide_portal(user_profile: dict):
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 5: ASPIRANT CONSULTATIONS & DIRECT QUERIES
                 # ─────────────────────────────────────────────────────────
-                with subtabs[4]:
+                elif active_subtab == "consultations":
+                    if f"guide_consult_msg_{selected_asp_id}" in st.session_state:
+                        c_succ = st.session_state.pop(f"guide_consult_msg_{selected_asp_id}")
+                        st.success(c_succ)
+                        try:
+                            st.toast(c_succ, icon="💬")
+                        except Exception:
+                            pass
+
                     open_pill = f' <span style="background:#FEF3C7; color:#B45309; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px; vertical-align:middle;">{open_cnt} Open</span>' if open_cnt > 0 else ""
                     st.markdown(f"### Direct Consultations: {curr_asp['full_name']}{open_pill}", unsafe_allow_html=True)
                     st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>Consultation requests and proactive guidance directives with <strong>{curr_asp['full_name']}</strong>.</p>", unsafe_allow_html=True)
@@ -864,8 +907,9 @@ def render_guide_portal(user_profile: dict):
                                         priority=gc_prio,
                                         category=gc_cat
                                     )
+                                    st.session_state[f"guide_subtab_pending_{selected_asp_id}"] = "consultations"
                                     if req:
-                                        st.success(f"Guidance directive dispatched to {curr_asp['full_name']}!")
+                                        st.session_state[f"guide_consult_msg_{selected_asp_id}"] = f"Guidance directive dispatched to {curr_asp['full_name']}!"
                                         st.rerun()
                                     else:
                                         st.error(err or "Failed to dispatch directive.")
@@ -932,8 +976,9 @@ def render_guide_portal(user_profile: dict):
                                                 st.warning("Please enter your guidance response.")
                                             else:
                                                 ok, err = guide_respond_request(t["id"], guide_id, new_st, resp_text.strip())
+                                                st.session_state[f"guide_subtab_pending_{selected_asp_id}"] = "consultations"
                                                 if ok:
-                                                    st.success("Guidance response recorded and student notified!")
+                                                    st.session_state[f"guide_consult_msg_{selected_asp_id}"] = "Guidance response recorded and student notified!"
                                                     st.rerun()
                                                 else:
                                                     st.error(err or "Failed to record response.")
@@ -1004,8 +1049,9 @@ def render_guide_portal(user_profile: dict):
                                         message=q_desc.strip(),
                                         priority=q_priority
                                     )
+                                    st.session_state[f"guide_subtab_pending_{selected_asp_id}"] = "consultations"
                                     if q_res:
-                                        st.success("Administrative request submitted to Program Directorate! Admin will issue official directives.")
+                                        st.session_state[f"guide_consult_msg_{selected_asp_id}"] = "Administrative request submitted to Program Directorate! Admin will issue official directives."
                                         st.rerun()
                                     else:
                                         st.error(q_err or "Failed to submit request.")

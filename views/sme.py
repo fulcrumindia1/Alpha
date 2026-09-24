@@ -94,19 +94,38 @@ def render_sme_portal(user_profile: dict):
                 asp_tickets = [t for t in all_sme_tickets if t.get("aspirant_id") == selected_asp_id]
                 open_cnt = sum(1 for t in asp_tickets if t.get("status") in ["OPEN", "IN_PROGRESS", "ACTION_REQUIRED"])
 
-                # 4 Dedicated Subtabs for Selected Aspirant (No Scheme Matches for SME!)
-                consult_label = "💬 Consultations"
-                subtabs = st.tabs([
-                    "👤 Profile",
-                    "🎬 Journey",
-                    "🤝 Guidance Team",
-                    consult_label
-                ])
+                # 4 Dedicated Navigation Sections for Selected Aspirant (No Scheme Matches for SME)
+                consult_label = f"💬 Consultations ({open_cnt})" if open_cnt > 0 else "💬 Consultations"
+                sme_subtab_keys = ["profile", "journey", "guidance_team", "consultations"]
+                sme_subtab_labels = {
+                    "profile": "👤 Profile",
+                    "journey": "🎬 Journey",
+                    "guidance_team": "🤝 Guidance Team",
+                    "consultations": consult_label
+                }
+
+                sub_key = f"sme_subtab_{selected_asp_id}"
+                pending_key = f"sme_subtab_pending_{selected_asp_id}"
+                if pending_key in st.session_state:
+                    st.session_state[sub_key] = st.session_state.pop(pending_key)
+                elif sub_key not in st.session_state or st.session_state[sub_key] not in sme_subtab_keys:
+                    st.session_state[sub_key] = "profile"
+
+                active_sme_sub = st.pills(
+                    "SME Mentee Navigation",
+                    options=sme_subtab_keys,
+                    format_func=lambda k: sme_subtab_labels.get(k, k),
+                    key=sub_key,
+                    label_visibility="collapsed"
+                )
+                if not active_sme_sub:
+                    active_sme_sub = st.session_state.get(sub_key, "profile")
+
 
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 1: ASPIRANT PROFILE
                 # ─────────────────────────────────────────────────────────
-                with subtabs[0]:
+                if active_sme_sub == "profile":
                     asp_full = get_profile(selected_asp_id) or curr_asp
                     p_data = asp_full.get("profile_data", {})
                     pers = p_data.get("personal", {})
@@ -173,7 +192,10 @@ def render_sme_portal(user_profile: dict):
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 2: ASPIRANT JOURNEY & DOMAIN CONTRIBUTION
                 # ─────────────────────────────────────────────────────────
-                with subtabs[1]:
+                elif active_sme_sub == "journey":
+                    if f"sme_journey_success_{selected_asp_id}" in st.session_state:
+                        st.success(st.session_state.pop(f"sme_journey_success_{selected_asp_id}"))
+
                     st.markdown(f"### Domain Mentorship: {curr_asp['full_name']}")
 
                     with st.expander(f"➕ Log Domain Guidance for {curr_asp['full_name']}'s Journey", expanded=False):
@@ -209,8 +231,9 @@ def render_sme_portal(user_profile: dict):
                                         domain=s_domain,
                                         event_date=s_date.isoformat()
                                     )
+                                    st.session_state[f"sme_subtab_pending_{selected_asp_id}"] = "journey"
                                     if ev:
-                                        st.success(f"Added domain guidance to {curr_asp['full_name']}'s Journey!")
+                                        st.session_state[f"sme_journey_success_{selected_asp_id}"] = f"Added domain guidance to {curr_asp['full_name']}'s Journey!"
                                         st.rerun()
                                     else:
                                         st.error(err or "Failed to record contribution.")
@@ -274,6 +297,7 @@ def render_sme_portal(user_profile: dict):
                                 if event.get("actor_id") == sme_id and actor_role == "sme":
                                     if st.button("🗑️", key=f"sme_del_sub_{event['id']}", help="Delete your contribution"):
                                         ok, err = soft_delete_event(event["id"], sme_id, "sme")
+                                        st.session_state[f"sme_subtab_pending_{selected_asp_id}"] = "journey"
                                         if ok:
                                             st.session_state["del_event_success"] = "Domain contribution deleted."
                                         else:
@@ -283,7 +307,7 @@ def render_sme_portal(user_profile: dict):
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 3: GUIDANCE TEAM
                 # ─────────────────────────────────────────────────────────
-                with subtabs[2]:
+                elif active_sme_sub == "guidance_team":
                     st.markdown(f"### Guidance Team for {curr_asp['full_name']}")
                     st.markdown("<p style='color:#64748B; font-size:0.9rem;'>Institutional mentors and specialized domain experts collaborating on this entrepreneur's advisory roadmap.</p>", unsafe_allow_html=True)
                     mentors = get_aspirant_mentors(selected_asp_id)
@@ -334,7 +358,15 @@ def render_sme_portal(user_profile: dict):
                 # ─────────────────────────────────────────────────────────
                 # SUBTAB 4: DIRECT CONSULTATIONS & DOMAIN QUERIES
                 # ─────────────────────────────────────────────────────────
-                with subtabs[3]:
+                elif active_sme_sub == "consultations":
+                    if f"sme_consult_msg_{selected_asp_id}" in st.session_state:
+                        c_succ = st.session_state.pop(f"sme_consult_msg_{selected_asp_id}")
+                        st.success(c_succ)
+                        try:
+                            st.toast(c_succ, icon="💬")
+                        except Exception:
+                            pass
+
                     open_pill = f' <span style="background:#FEF3C7; color:#B45309; font-size:0.75rem; font-weight:800; padding:2px 8px; border-radius:6px; vertical-align:middle;">{open_cnt} Open</span>' if open_cnt > 0 else ""
                     st.markdown(f"### Domain Consultations: {curr_asp['full_name']}{open_pill}", unsafe_allow_html=True)
                     st.markdown(f"<p style='color:#64748B; font-size:0.9rem;'>Technical and compliance consultation requests with <strong>{curr_asp['full_name']}</strong>.</p>", unsafe_allow_html=True)
@@ -372,8 +404,9 @@ def render_sme_portal(user_profile: dict):
                                         priority=sc_prio,
                                         category=sc_cat
                                     )
+                                    st.session_state[f"sme_subtab_pending_{selected_asp_id}"] = "consultations"
                                     if req:
-                                        st.success(f"Advisory notice dispatched to {curr_asp['full_name']}!")
+                                        st.session_state[f"sme_consult_msg_{selected_asp_id}"] = f"Advisory notice dispatched to {curr_asp['full_name']}!"
                                         st.rerun()
                                     else:
                                         st.error(err or "Failed to dispatch advisory notice.")
@@ -441,8 +474,9 @@ def render_sme_portal(user_profile: dict):
                                                 st.warning("Please enter your advisory response.")
                                             else:
                                                 ok, err = sme_respond_request(t["id"], sme_id, new_sme_st, sme_resp_text.strip())
+                                                st.session_state[f"sme_subtab_pending_{selected_asp_id}"] = "consultations"
                                                 if ok:
-                                                    st.success("Advisory response recorded and student notified!")
+                                                    st.session_state[f"sme_consult_msg_{selected_asp_id}"] = "Advisory response recorded and student notified!"
                                                     st.rerun()
                                                 else:
                                                     st.error(err or "Failed to record response.")
@@ -513,8 +547,9 @@ def render_sme_portal(user_profile: dict):
                                         message=q_desc.strip(),
                                         priority=q_priority
                                     )
+                                    st.session_state[f"sme_subtab_pending_{selected_asp_id}"] = "consultations"
                                     if q_res:
-                                        st.success("Administrative request submitted to Program Directorate! Admin will issue official directives.")
+                                        st.session_state[f"sme_consult_msg_{selected_asp_id}"] = "Administrative request submitted to Program Directorate! Admin will issue official directives."
                                         st.rerun()
                                     else:
                                         st.error(q_err or "Failed to submit request.")
